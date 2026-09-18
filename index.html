@@ -4,9 +4,60 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>클래스노트 - Homework</title>
+<link rel="icon" type="image/png" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#2F5D50">
+<!--
+  ===== 설정 방법 =====
+  1) https://console.firebase.google.com 에서 새 프로젝트를 만드세요 (무료 Spark 요금제로 충분해요).
+  2) 프로젝트 설정 > 일반 > "웹 앱 추가"로 앱을 등록하면 firebaseConfig 값이 나옵니다. 아래 FIREBASE_CONFIG에 붙여넣으세요.
+  3) 왼쪽 메뉴 Build > Authentication > "이메일/비밀번호" 로그인 방법을 사용 설정하세요.
+  4) 왼쪽 메뉴 Build > Firestore Database > 데이터베이스 만들기 (테스트 모드로 시작해도 됩니다).
+  5) https://aistudio.google.com/apikey 에서 무료 Gemini API 키를 발급받아 아래 GEMINI_API_KEY에 붙여넣으세요.
+  6) 이 HTML 파일을 Firebase Hosting(무료)이나 원하는 정적 호스팅에 올리면 학생들이 계정 없이(자체 회원가입으로) 접속할 수 있어요.
+
+  ===== Firestore 보안 규칙 (Firebase 콘솔 > Firestore Database > 규칙에 붙여넣으세요) =====
+  rules_version = '2';
+  service cloud.firestore {
+    match /databases/{database}/documents {
+      function isSignedIn() { return request.auth != null; }
+      function myRole() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      }
+      match /users/{uid} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.auth.uid == uid;
+        allow update, delete: if isSignedIn() && request.auth.uid == uid;
+      }
+      match /classes/{id} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && myRole() == 'teacher';
+      }
+      match /homework/{id} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && myRole() == 'teacher';
+      }
+      match /submissions/{id} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid;
+        allow delete: if isSignedIn() && myRole() == 'teacher';
+        allow update: if isSignedIn() && resource.data.studentId == request.auth.uid
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shadowedAt']);
+      }
+      match /vocab/{uid} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && request.auth.uid == uid;
+      }
+      match /grammarSets/{id} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && myRole() == 'teacher';
+      }
+    }
+  }
+-->
+
 <style>
 :root{
   --paper:#FBF8F1;
@@ -86,7 +137,9 @@ input,textarea,select{font-family:inherit;font-size:14px;}
   width:34px;height:34px;border-radius:9px;background:var(--pine);
   display:flex;align-items:center;justify-content:center;color:var(--paper);
   font-family:var(--font-display);font-size:17px;flex-shrink:0;
+  overflow:hidden;
 }
+.brand-mark img{width:100%;height:100%;object-fit:cover;}
 .brand-text h1{font-size:18px;}
 .brand-text span{font-size:12px;color:var(--ink-soft);}
 .who{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-soft);}
@@ -114,7 +167,7 @@ input,textarea,select{font-family:inherit;font-size:14px;}
 
 .field{margin-bottom:14px;}
 .field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;font-weight:600;}
-.field input[type=text],.field input[type=time],.field textarea,.field select{
+.field input[type=text],.field input[type=password],.field input[type=time],.field textarea,.field select{
   width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;
   background:var(--paper);color:var(--ink);
 }
@@ -165,14 +218,43 @@ input,textarea,select{font-family:inherit;font-size:14px;}
   background:var(--paper-2);border-radius:10px;padding:14px 16px;margin-top:12px;
   white-space:pre-wrap;font-size:13.5px;line-height:1.7;border-left:3px solid var(--pine);
 }
+.fb-wrap{background:var(--paper-2);border-radius:10px;padding:14px 16px;margin-top:12px;border-left:3px solid var(--pine);}
+.fb-item{padding:10px 0;border-bottom:1px solid var(--line);}
+.fb-item:last-child{border-bottom:none;}
+.fb-item.correct .fb-original{color:var(--pine);text-decoration:none;}
+.fb-original{font-size:16.5px;font-weight:600;color:var(--coral);text-decoration:line-through;text-decoration-thickness:1.5px;line-height:1.5;}
+.fb-arrow{color:var(--ink-soft);font-size:13px;margin:2px 0;}
+.fb-corrected{font-size:18px;font-weight:700;color:var(--pine);line-height:1.5;}
+.fb-explain{font-size:13px;color:var(--ink-soft);margin-top:5px;line-height:1.6;}
+.fb-encourage{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:13.5px;color:var(--ink);font-weight:600;}
+.photo-upload{border:1px dashed var(--line);border-radius:12px;padding:18px;text-align:center;}
+.photo-upload input[type=file]{display:none;}
+.photo-preview{max-width:100%;max-height:340px;border-radius:10px;margin-top:12px;display:block;}
+.photo-thumb{max-width:120px;max-height:120px;border-radius:8px;margin-top:8px;display:block;cursor:pointer;}
+.divider-or{display:flex;align-items:center;gap:10px;margin:22px 0;color:var(--ink-soft);font-size:12px;}
+.divider-or::before,.divider-or::after{content:"";flex:1;height:1px;background:var(--line);}
+.transcript-box{background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:13px;color:var(--ink-soft);margin-top:10px;white-space:pre-wrap;}
+.pron-word{display:inline-block;padding:4px 11px;border-radius:8px;margin:3px 5px 3px 0;font-size:16px;font-weight:700;}
+.pron-word.ok{background:rgba(47,93,80,.13);color:var(--pine);}
+.pron-word.issue{background:rgba(217,88,63,.13);color:var(--coral);}
+.pron-note{font-size:12.5px;color:var(--ink-soft);margin:0 0 12px 2px;}
+.target-box{background:var(--paper-2);border-radius:10px;padding:14px 16px;border-left:3px solid var(--marigold);font-size:16px;font-weight:600;line-height:1.6;white-space:pre-wrap;}
+.word-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);}
+.word-row:last-child{border-bottom:none;}
+.word-row .en{font-weight:700;flex:1;}
+.word-row .kr{color:var(--ink-soft);flex:1;}
+.quiz-progress{font-size:12px;color:var(--ink-soft);margin-bottom:10px;}
+.quiz-prompt{font-size:24px;font-weight:800;text-align:center;padding:26px 16px;background:var(--paper-2);border-radius:12px;margin-bottom:16px;}
+.quiz-hint{font-size:12px;color:var(--ink-soft);text-align:center;margin-top:-10px;margin-bottom:16px;}
 .thinking{color:var(--ink-soft);font-style:italic;font-size:13px;}
 
 .sub-item{border:1px solid var(--line);border-radius:11px;padding:14px;margin-bottom:10px;}
 .sub-item-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
 .type-badge{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--pine);color:var(--paper);font-weight:600;}
 .type-badge.speaking{background:var(--coral);}
-.type-badge.grammar{background:var(--marigold);color:var(--pine-deep);}
-.hw-item .type-badge{display:inline-block;}
+.type-badge.voca{background:var(--marigold);color:var(--pine-deep);}
+.type-badge.reading{background:#5C8AA6;}
+.type-badge.grammar{background:#8B6BAE;}
 .sub-item .stext{margin-top:8px;font-size:13.5px;white-space:pre-wrap;color:var(--ink-soft);}
 .sub-item .stime{font-size:11.5px;color:var(--ink-soft);}
 
@@ -226,24 +308,248 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
   <div class="center-msg">불러오는 중...</div>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import {
+  getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+import {
+  getFirestore, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+  addDoc, onSnapshot, query, where, orderBy, limit
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+// ===== 여기 두 곳만 채우면 됩니다 =====
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDlKxieM-wliGIrAiVOWwFbypkzvh6mobo",
+  authDomain: "homework-pop.firebaseapp.com",
+  projectId: "homework-pop",
+  storageBucket: "homework-pop.firebasestorage.app",
+  messagingSenderId: "883836206407",
+  appId: "1:883836206407:web:3e9bbb4dd3bb706fb12062"
+};
+const GEMINI_API_KEY = "AQ.Ab8RN6JMxa0Qabj1cweHUNXXiUTvGQeCx0SebkL1peNhWa3jwg";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
+// 선생님 회원가입 시 필요한 초대 코드입니다. 원하는 값으로 바꿔서, 선생님들에게만 알려주세요.
+const TEACHER_INVITE_CODE = "hagwon2026";
+// 회원가입 시 보여줄 이용약관입니다. 원하는 내용으로 자유롭게 고치세요.
+const TERMS_TEXT = `클래스노트 이용약관 (요약)
+
+1. 이 앱은 학원 수업을 위한 숙제 관리 도구입니다.
+2. 학생이 제출한 글쓰기(Sentence), 음성(Shadowing), 단어 테스트(Voca), 단어 발음(Reading), 문법 문제(Grammar) 결과는 담당 선생님이 확인할 수 있습니다.
+3. 제출한 사진과 음성은 AI(Google Gemini)로 전송되어 첨삭에 사용되며, 원본은 서버에 저장되지 않습니다 (일부 소용량 사진/음성만 첨삭 결과와 함께 저장될 수 있습니다).
+4. 제출물(Sentence/Shadowing/Voca/Reading/Grammar)은 등록 후 30일이 지나면 자동으로 삭제됩니다.
+5. 아이디, 이름, 숙제 제출 내용 등은 학원 수업 목적으로만 사용되며, 다른 목적으로 이용되지 않습니다.
+6. 서비스 이용 중 궁금한 점은 담당 선생님에게 문의해주세요.`;
+// ======================================
+
+const NOT_CONFIGURED = FIREBASE_CONFIG.apiKey === "YOUR_FIREBASE_API_KEY" || GEMINI_API_KEY === "YOUR_GEMINI_API_KEY";
+
+let fbApp, fbAuth, fbDb;
+if(!NOT_CONFIGURED){
+  fbApp = initializeApp(FIREBASE_CONFIG);
+  fbAuth = getAuth(fbApp);
+  fbDb = getFirestore(fbApp);
+}
+
+// ---- Firestore shim: gives the rest of the app the same db.collection()/db.doc() API ----
+function makeDbShim(){
+  function wrapDocSnap(s){
+    return { id: s.id, exists: s.exists(), data: () => s.data() };
+  }
+  function docRef(path){
+    const ref = doc(fbDb, path);
+    return {
+      id: ref.id,
+      get: async () => wrapDocSnap(await getDoc(ref)),
+      set: (data) => setDoc(ref, data),
+      update: (data) => updateDoc(ref, data),
+      delete: () => deleteDoc(ref),
+      onSnapshot: (next, err) => onSnapshot(ref, s => next(wrapDocSnap(s)), err),
+      collection: (sub) => collRef(`${path}/${sub}`),
+    };
+  }
+  function collRef(path, constraints = []){
+    const base = collection(fbDb, path);
+    const q = () => (constraints.length ? query(base, ...constraints) : base);
+    return {
+      doc: (id) => docRef(id ? `${path}/${id}` : `${path}/${doc(base).id}`),
+      add: async (data) => { const r = await addDoc(base, data); return docRef(`${path}/${r.id}`); },
+      where: (f,op,v) => collRef(path, [...constraints, where(f,op,v)]),
+      orderBy: (f,d) => collRef(path, [...constraints, orderBy(f, d || "asc")]),
+      limit: (n) => collRef(path, [...constraints, limit(n)]),
+      get: async () => { const s = await getDocs(q()); return { docs: s.docs.map(wrapDocSnap) }; },
+      onSnapshot: (next, err) => onSnapshot(q(), s => next({ docs: s.docs.map(wrapDocSnap) }), err),
+    };
+  }
+  return { doc: docRef, collection: (p) => collRef(p) };
+}
+
+function usernameToEmail(username){
+  return username.trim().toLowerCase() + "@classnote.local";
+}
+
+async function callGemini(prompt, media){
+  const parts = [{ text: prompt }];
+  if(media){
+    parts.push({ inline_data: { mime_type: media.mimeType, data: media.base64 } });
+  }
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ contents: [{ parts }] })
+    }
+  );
+  if(!res.ok){
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`Gemini API 오류 (${res.status}) ${errBody.slice(0,200)}`);
+  }
+  const data = await res.json();
+  const outParts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+  const text = (outParts || []).map(p => p.text || "").join("");
+  if(!text) throw new Error("Gemini가 빈 응답을 반환했습니다.");
+  return text;
+}
+
+async function geminiSample(prompt, opts){
+  const text = await callGemini(prompt, (opts && opts.image) || (opts && opts.audio));
+  if(opts && opts.onText) opts.onText({text});
+  return {text};
+}
+
+// Resize/compress an image File down to a manageable size and return both
+// a data URL (for on-page preview / thumbnail storage) and raw base64 (for the Gemini call).
+function compressImageFile(file, maxDim, quality){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("이미지를 읽지 못했어요."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("이미지를 불러오지 못했어요."));
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if(w > maxDim || h > maxDim){
+          if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
+          else{ w = Math.round(w * maxDim / h); h = maxDim; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality || 0.72);
+        resolve({ dataUrl, base64: dataUrl.split(",")[1], mimeType: "image/jpeg" });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Gemini only accepts wav/mp3/aiff/aac/ogg/flac — MediaRecorder usually
+// produces webm/opus, so we decode + re-encode to plain 16-bit PCM WAV.
+async function audioBlobToWavBase64(blob){
+  const arrayBuffer = await blob.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AudioCtx();
+  let audioBuffer;
+  try{
+    audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  }finally{
+    ctx.close();
+  }
+  const numFrames = audioBuffer.length;
+  const sampleRate = audioBuffer.sampleRate;
+  const channels = [];
+  for(let c = 0; c < audioBuffer.numberOfChannels; c++) channels.push(audioBuffer.getChannelData(c));
+  const mono = new Float32Array(numFrames);
+  for(let i = 0; i < numFrames; i++){
+    let sum = 0;
+    for(let c = 0; c < channels.length; c++) sum += channels[c][i];
+    mono[i] = sum / channels.length;
+  }
+  const dataSize = numFrames * 2;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeStr = (offset, str) => { for(let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+  writeStr(0, "RIFF"); view.setUint32(4, 36 + dataSize, true); writeStr(8, "WAVE");
+  writeStr(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  writeStr(36, "data"); view.setUint32(40, dataSize, true);
+  let offset = 44;
+  for(let i = 0; i < numFrames; i++){
+    const s = Math.max(-1, Math.min(1, mono[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    offset += 2;
+  }
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for(let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(binary);
+}
+
 (function(){
 "use strict";
 
 const state = {
-  claude: null, db: null, sample: null,
+  db: null, sample: geminiSample,
   uid: null, role: null, me: null,
-  classes: [], homework: [], submissions: [], users: {},
+  classes: [], homework: [], submissions: [], users: {}, grammarSets: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
-  selectedClassId: null,
-  ready: false, available: true,
-  authMode: "login", authError: "", authBusy: false,
-  writingFeedback: null, writingBusy: false, writingCorrected: null,
-  speakingTranscript: "", speakingRecording: false, speakingFeedback: null, speakingBusy: false, speakingCorrected: null,
-  recognition: null, mediaRecorder: null,
+  selectedClassId: null, editingHomeworkId: null, teacherSubFilter: "writing",
+  ready: false, available: true, usersLoaded: false,
+  authMode: "login", authError: "", authBusy: false, authUsernameDraft: "",
+  writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false,
+  writingPhotoError: null, writingPhotoFeedback: null, writingPhotoTranscript: null, writingPhotoCorrected: null,
+  speakingTranscript: "", speakingRecording: false, speakingFeedback: null, speakingBusy: false, speakingError: null,
+  speakingAudioBase64: null, speakingAudioMime: null,
+  speakingPlaybackDataUrl: null, speakingPlaybackMime: null,
+  readingRecording: false, readingAudioBase64: null, readingAudioMime: null,
+  readingPlaybackDataUrl: null, readingPlaybackMime: null,
+  readingBusy: false, readingError: null, readingFeedback: null, readingTranscript: "",
+  readingPhotoPreview: null, readingPhotoBase64: null, readingPhotoMime: null,
+  readingExtractedWords: [], readingWordsBusy: false, readingWordsError: null,
+  grammarClassId: null, grammarDraftProblems: [], grammarGenBusy: false, grammarGenError: null,
+  grammarCount: 5, grammarTopic: "",
+  grammarAnswers: {}, grammarSubmitting: false, grammarResult: null,
+  vocaWords: [], vocaWordsLoaded: false,
+  vocaTestActive: false, vocaTestQuestions: [], vocaTestIndex: 0, vocaTestAnswers: [],
+  vocaTestDone: false, vocaTestSaving: false,
+  recognition: null, mediaRecorder: null, mediaStream: null, audioChunks: [],
+  canInstall: true,
 };
 
-const SESSION_KEY = "classnote_session_username";
+function isStandaloneApp(){
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+state.canInstall = !isStandaloneApp();
+
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  state.canInstall = false;
+  render();
+});
+async function promptInstall(){
+  if(deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    try{ await deferredInstallPrompt.userChoice; }catch(e){}
+    deferredInstallPrompt = null;
+    render();
+    return;
+  }
+  // Chrome doesn't always fire beforeinstallprompt (it has its own cooldown
+  // after a recent dismiss/uninstall) — when that happens, walk the person
+  // through the manual install path instead of doing nothing.
+  showInfoDialog('아직 자동 설치 버튼이 준비되지 않았어요.\n\n브라우저 오른쪽 위 점 3개(⋮) 메뉴를 열고\n"앱 설치" 또는 "홈 화면에 추가"를 눌러주세요.');
+}
+
 const root = document.getElementById("root");
 
 function esc(s){
@@ -261,14 +567,82 @@ function fmtTime(ts){
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
 }
 
-async function hashPassword(password, salt){
-  const enc = new TextEncoder().encode(password + ":" + salt);
-  const buf = await crypto.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
-}
-
 function nameOf(id){
   return (state.users[id] && state.users[id].name) || id;
+}
+
+function renderFeedbackBlock(raw){
+  if(!raw) return "";
+  let data = null;
+  try{
+    let s = String(raw).trim();
+    const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if(fence) s = fence[1].trim();
+    const start = s.indexOf("{");
+    const end = s.lastIndexOf("}");
+    if(start !== -1 && end !== -1) s = s.slice(start, end + 1);
+    data = JSON.parse(s);
+  }catch(e){ data = null; }
+
+  if(data && Array.isArray(data.items)){
+    const items = data.items.map(it => {
+      const correct = !!it.correct;
+      return `
+        <div class="fb-item ${correct ? "correct" : ""}">
+          <div class="fb-original">${esc(it.original || "")}</div>
+          ${!correct ? `
+            <div class="fb-arrow">↓ 고치면</div>
+            <div class="fb-corrected">${esc(it.corrected || "")}</div>
+          ` : ""}
+          <div class="fb-explain">${esc(it.explanation || (correct ? "정확해요!" : ""))}</div>
+        </div>
+      `;
+    }).join("");
+    const encourage = data.encouragement ? `<div class="fb-encourage">${esc(data.encouragement)}</div>` : "";
+    return `<div class="fb-wrap">${items}${encourage}</div>`;
+  }
+  // fallback: plain text (older submissions, or unparsable response)
+  return `<div class="feedback-box">${esc(raw)}</div>`;
+}
+
+function extractJsonLoose(raw){
+  let s = String(raw || "").trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if(fence) s = fence[1].trim();
+  const start = s.indexOf("{");
+  const end = s.lastIndexOf("}");
+  if(start !== -1 && end !== -1) s = s.slice(start, end + 1);
+  try{ return JSON.parse(s); }catch(e){ return null; }
+}
+
+function renderPronunciationBlock(raw){
+  if(!raw) return "";
+  const data = extractJsonLoose(raw);
+  if(data && Array.isArray(data.sentences)){
+    const overall = data.overall ? `<p style="margin-bottom:12px;">${esc(data.overall)}</p>` : "";
+    const sentenceBlocks = data.sentences.map((s, i) => {
+      const words = (s.words || []).map(w => `<span class="pron-word ${w.ok?"ok":"issue"}">${esc(w.word || "")}</span>`).join("");
+      const notes = (s.words || []).filter(w => !w.ok && w.note).map(w => `<div class="pron-note">🔸 <strong>${esc(w.word)}</strong>: ${esc(w.note)}</div>`).join("");
+      return `
+        <div class="fb-item">
+          ${data.sentences.length > 1 ? `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px;">문장 ${i+1}</div>` : ""}
+          <div style="margin-bottom:8px;">${words}</div>
+          ${notes}
+        </div>
+      `;
+    }).join("");
+    const encourage = data.encouragement ? `<div class="fb-encourage">${esc(data.encouragement)}</div>` : "";
+    return `<div class="fb-wrap">${overall}${sentenceBlocks}${encourage}</div>`;
+  }
+  // backward-compat: older submissions saved with a flat "words" list (no sentence grouping)
+  if(data && Array.isArray(data.words)){
+    const overall = data.overall ? `<p style="margin-bottom:10px;">${esc(data.overall)}</p>` : "";
+    const words = data.words.map(w => `<span class="pron-word ${w.ok?"ok":"issue"}">${esc(w.word || "")}</span>`).join("");
+    const notes = data.words.filter(w => !w.ok && w.note).map(w => `<div class="pron-note">🔸 <strong>${esc(w.word)}</strong>: ${esc(w.note)}</div>`).join("");
+    const encourage = data.encouragement ? `<div class="fb-encourage">${esc(data.encouragement)}</div>` : "";
+    return `<div class="fb-wrap">${overall}<div style="margin-bottom:10px;">${words}</div>${notes}${encourage}</div>`;
+  }
+  return `<div class="feedback-box">${esc(raw)}</div>`;
 }
 
 let toastTimer = null;
@@ -306,9 +680,109 @@ function confirmDialog(msg){
   });
 }
 
+function showInfoDialog(msg){
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal-box">
+      <p style="white-space:pre-wrap;">${esc(msg)}</p>
+      <div class="modal-actions">
+        <button class="btn small" id="modal-ok">확인</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener("click", e => { if(e.target === backdrop) close(); });
+  backdrop.querySelector("#modal-ok").onclick = close;
+}
+
+function openMyInfoModal(){
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const currentName = (state.me && state.me.name) || "";
+  backdrop.innerHTML = `
+    <div class="modal-box" style="text-align:left;max-width:380px;">
+      <h3 style="margin-bottom:16px;">내 정보</h3>
+      <div class="field">
+        <label>이름</label>
+        <input type="text" id="myinfo-name" value="${esc(currentName)}">
+      </div>
+      <button class="btn small" id="myinfo-save-name">이름 저장</button>
+      <p id="myinfo-name-msg" style="font-size:12px;margin-top:8px;"></p>
+
+      <div style="border-top:1px solid var(--line);margin:18px 0 16px;"></div>
+
+      <div class="field">
+        <label>현재 비밀번호</label>
+        <input type="password" id="myinfo-current-pw" autocomplete="current-password">
+      </div>
+      <div class="field">
+        <label>새 비밀번호</label>
+        <input type="password" id="myinfo-new-pw" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label>새 비밀번호 확인</label>
+        <input type="password" id="myinfo-new-pw2" autocomplete="new-password">
+      </div>
+      <button class="btn small" id="myinfo-save-pw">비밀번호 변경</button>
+      <p id="myinfo-pw-msg" style="font-size:12px;margin-top:8px;"></p>
+
+      <div class="modal-actions" style="margin-top:18px;">
+        <button class="btn secondary small" id="myinfo-close">닫기</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener("click", e => { if(e.target === backdrop) close(); });
+  backdrop.querySelector("#myinfo-close").onclick = close;
+
+  const nameMsg = backdrop.querySelector("#myinfo-name-msg");
+  backdrop.querySelector("#myinfo-save-name").onclick = async () => {
+    const newName = backdrop.querySelector("#myinfo-name").value.trim();
+    if(!newName){ nameMsg.textContent = "이름을 입력해주세요."; nameMsg.style.color = "var(--coral)"; return; }
+    try{
+      await state.db.doc(`users/${state.uid}`).update({name: newName});
+      state.me = {name: newName};
+      nameMsg.textContent = "저장했어요.";
+      nameMsg.style.color = "var(--pine)";
+      document.getElementById("me-name").textContent = newName;
+    }catch(e){
+      nameMsg.textContent = "저장에 실패했어요.";
+      nameMsg.style.color = "var(--coral)";
+    }
+  };
+
+  const pwMsg = backdrop.querySelector("#myinfo-pw-msg");
+  backdrop.querySelector("#myinfo-save-pw").onclick = async () => {
+    const current = backdrop.querySelector("#myinfo-current-pw").value;
+    const next = backdrop.querySelector("#myinfo-new-pw").value;
+    const next2 = backdrop.querySelector("#myinfo-new-pw2").value;
+    if(!current || !next || !next2){ pwMsg.textContent = "모든 칸을 입력해주세요."; pwMsg.style.color = "var(--coral)"; return; }
+    if(next.length < 6){ pwMsg.textContent = "새 비밀번호는 6자 이상이어야 해요."; pwMsg.style.color = "var(--coral)"; return; }
+    if(next !== next2){ pwMsg.textContent = "새 비밀번호가 서로 달라요."; pwMsg.style.color = "var(--coral)"; return; }
+    pwMsg.textContent = "변경 중..."; pwMsg.style.color = "var(--ink-soft)";
+    try{
+      const username = (state.users[state.uid] && state.users[state.uid].username) || "";
+      const cred = EmailAuthProvider.credential(usernameToEmail(username), current);
+      await reauthenticateWithCredential(fbAuth.currentUser, cred);
+      await updatePassword(fbAuth.currentUser, next);
+      pwMsg.textContent = "비밀번호를 변경했어요.";
+      pwMsg.style.color = "var(--pine)";
+      backdrop.querySelector("#myinfo-current-pw").value = "";
+      backdrop.querySelector("#myinfo-new-pw").value = "";
+      backdrop.querySelector("#myinfo-new-pw2").value = "";
+    }catch(e){
+      pwMsg.textContent = (e && e.code === "auth/invalid-credential") ? "현재 비밀번호가 올바르지 않아요." : "변경에 실패했어요.";
+      pwMsg.style.color = "var(--coral)";
+    }
+  };
+}
+
 function render(){
-  if(!state.available){
-    root.innerHTML = `<div class="center-msg">이 페이지는 Claude 아티팩트 뷰어에서 열어야 정상적으로 동작합니다.<br><br><span style="font-size:12px;opacity:.7;">${esc(state.availReason||"")}</span></div>`;
+  if(NOT_CONFIGURED){
+    root.innerHTML = `<div class="center-msg">아직 설정이 끝나지 않았어요.<br><br><span style="font-size:12.5px;opacity:.8;">이 HTML 파일 위쪽 주석의 안내를 따라<br>FIREBASE_CONFIG와 GEMINI_API_KEY를 채워주세요.</span></div>`;
     return;
   }
   if(!state.ready){
@@ -317,6 +791,16 @@ function render(){
   }
   if(!state.uid){
     renderAuth();
+    return;
+  }
+  if(!state.role){
+    if(state.usersLoaded){
+      root.innerHTML = `<div class="center-msg">계정 정보를 찾을 수 없어요.<br>선생님에게 문의해주세요.<br><br><button class="btn" id="no-profile-logout" style="margin-top:14px;">로그아웃</button></div>`;
+      const b = document.getElementById("no-profile-logout");
+      if(b) b.onclick = logout;
+    }else{
+      root.innerHTML = `<div class="center-msg">불러오는 중...</div>`;
+    }
     return;
   }
   renderShell();
@@ -331,39 +815,63 @@ function renderAuth(){
       <div class="tabs" style="justify-content:center;">
         <button class="tab-btn ${isLogin?"active":""}" id="tab-login">로그인</button>
         <button class="tab-btn ${!isLogin?"active":""}" id="tab-signup">회원가입</button>
+        ${state.canInstall ? `<button class="tab-btn" id="tab-install">📲 앱 설치</button>` : ""}
       </div>
       <div class="card">
         ${!isLogin ? `
           <div class="field">
             <label>역할</label>
             <select id="auth-role">
-              <option value="teacher">선생님</option>
               <option value="student">학생</option>
+              <option value="teacher">선생님</option>
             </select>
           </div>
           <div class="field">
             <label>이름</label>
             <input type="text" id="auth-name" placeholder="화면에 표시될 이름">
           </div>
+          <div class="field" id="auth-code-field" style="display:none;">
+            <label>선생님 초대 코드</label>
+            <input type="text" id="auth-code" placeholder="선생님만 입력하세요">
+          </div>
         ` : ""}
         <div class="field">
           <label>아이디</label>
-          <input type="text" id="auth-username" placeholder="영문/숫자 아이디" autocomplete="username">
+          <input type="text" id="auth-username" placeholder="영문/숫자 아이디" autocomplete="username" value="${esc(state.authUsernameDraft || "")}">
         </div>
         <div class="field">
           <label>비밀번호</label>
           <input type="password" id="auth-password" placeholder="비밀번호" autocomplete="${isLogin?"current-password":"new-password"}">
         </div>
+        ${!isLogin ? `
+          <div class="field" style="margin-bottom:14px;">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:400;">
+              <input type="checkbox" id="auth-terms" style="width:auto;">
+              <span>이용약관에 동의합니다 (<a href="#" id="auth-terms-view" style="color:var(--pine);text-decoration:underline;">보기</a>)</span>
+            </label>
+          </div>
+        ` : ""}
         ${state.authError ? `<p style="color:var(--coral);font-size:12.5px;margin-bottom:10px;">${esc(state.authError)}</p>` : ""}
         <button class="btn" id="auth-submit" style="width:100%;" ${state.authBusy?"disabled":""}>${state.authBusy ? "처리 중..." : (isLogin ? "로그인" : "회원가입")}</button>
       </div>
+      <p style="text-align:center;font-size:11.5px;color:var(--ink-soft);margin-top:22px;">© ${new Date().getFullYear()} 클래스노트. All rights reserved.</p>
     </div>
   `;
   document.getElementById("tab-login").onclick = () => { state.authMode="login"; state.authError=""; render(); };
   document.getElementById("tab-signup").onclick = () => { state.authMode="signup"; state.authError=""; render(); };
+  const termsLink = document.getElementById("auth-terms-view");
+  if(termsLink) termsLink.onclick = (e) => { e.preventDefault(); showInfoDialog(TERMS_TEXT); };
+  const installBtn = document.getElementById("tab-install");
+  if(installBtn) installBtn.onclick = promptInstall;
   document.getElementById("auth-submit").onclick = isLogin ? doLogin : doSignup;
+  document.getElementById("auth-username").oninput = e => { state.authUsernameDraft = e.target.value; };
   const pwField = document.getElementById("auth-password");
   pwField.onkeydown = e => { if(e.key === "Enter") (isLogin ? doLogin : doSignup)(); };
+  if(!isLogin){
+    const roleSel = document.getElementById("auth-role");
+    const codeField = document.getElementById("auth-code-field");
+    roleSel.onchange = () => { codeField.style.display = roleSel.value === "teacher" ? "block" : "none"; };
+  }
 }
 
 async function doLogin(){
@@ -372,21 +880,10 @@ async function doLogin(){
   if(!username || !password){ state.authError = "아이디와 비밀번호를 입력해주세요."; render(); return; }
   state.authBusy = true; state.authError = ""; render();
   try{
-    const snap = await state.db.doc(`users/${username}`).get();
-    if(!snap.exists){
-      state.authError = "존재하지 않는 아이디예요.";
-    }else{
-      const data = snap.data();
-      const hash = await hashPassword(password, username);
-      if(hash !== data.passwordHash){
-        state.authError = "비밀번호가 올바르지 않아요.";
-      }else{
-        localStorage.setItem(SESSION_KEY, username);
-        state.uid = username; state.role = data.role; state.me = {name: data.name};
-        state.view = data.role === "teacher" ? "teacher-classes" : "student-homework";
-      }
-    }
-  }catch(e){ state.authError = "로그인 중 오류가 발생했어요."; }
+    await signInWithEmailAndPassword(fbAuth, usernameToEmail(username), password);
+  }catch(e){
+    state.authError = "아이디 또는 비밀번호가 올바르지 않아요.";
+  }
   state.authBusy = false; render();
 }
 
@@ -395,40 +892,38 @@ async function doSignup(){
   const name = document.getElementById("auth-name").value.trim();
   const username = document.getElementById("auth-username").value.trim();
   const password = document.getElementById("auth-password").value;
+  const code = document.getElementById("auth-code") ? document.getElementById("auth-code").value.trim() : "";
+  const termsChecked = document.getElementById("auth-terms").checked;
   if(!name || !username || !password){ state.authError = "모든 항목을 입력해주세요."; render(); return; }
-  if(password.length < 4){ state.authError = "비밀번호는 4자 이상으로 입력해주세요."; render(); return; }
+  if(password.length < 6){ state.authError = "비밀번호는 6자 이상으로 입력해주세요."; render(); return; }
   if(!/^[a-zA-Z0-9_.-]+$/.test(username)){ state.authError = "아이디는 영문, 숫자, _ . - 만 사용할 수 있어요."; render(); return; }
+  if(role === "teacher" && code !== TEACHER_INVITE_CODE){ state.authError = "선생님 초대 코드가 올바르지 않아요."; render(); return; }
+  if(!termsChecked){ state.authError = "이용약관에 동의해주세요."; render(); return; }
   state.authBusy = true; state.authError = ""; render();
   try{
-    const ref = state.db.doc(`users/${username}`);
-    const existing = await ref.get();
-    if(existing.exists){
-      state.authError = "이미 사용 중인 아이디예요.";
-    }else{
-      const hash = await hashPassword(password, username);
-      await ref.set({username, passwordHash: hash, role, name, createdAt: Date.now()});
-      localStorage.setItem(SESSION_KEY, username);
-      state.uid = username; state.role = role; state.me = {name};
-      state.view = role === "teacher" ? "teacher-classes" : "student-homework";
-    }
-  }catch(e){ state.authError = "회원가입 중 오류가 발생했어요."; }
+    const cred = await createUserWithEmailAndPassword(fbAuth, usernameToEmail(username), password);
+    await state.db.doc(`users/${cred.user.uid}`).set({username, role, name, createdAt: Date.now()});
+  }catch(e){
+    state.authError = e && e.code === "auth/email-already-in-use" ? "이미 사용 중인 아이디예요." : "회원가입 중 오류가 발생했어요.";
+  }
   state.authBusy = false; render();
 }
 
-function logout(){
-  localStorage.removeItem(SESSION_KEY);
-  state.uid = null; state.role = null; state.me = null; state.view = null;
-  state.authMode = "login"; state.authError = "";
-  render();
+async function logout(){
+  try{ await signOut(fbAuth); }catch(e){}
 }
 
 function renderShell(){
   const isTeacher = state.role === "teacher";
   const tabs = isTeacher
-    ? [["teacher-classes","클래스 관리"],["teacher-students","학생관리"]]
-    : [["student-homework","숙제"],["student-writing","Writing"],["student-speaking","Speaking"],["student-mine","내 제출물"]];
-  const inClassDetail = isTeacher && state.view === "teacher-class-detail" && state.selectedClassId;
-  if(!state.view || (!inClassDetail && !tabs.some(t => t[0] === state.view))) state.view = tabs[0][0];
+    ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"],["teacher-grammar","Grammar"]]
+    : [["student-homework","숙제"],["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-grammar","Grammar"],["student-mine","내 제출물"]];
+  const validViews = isTeacher ? [...tabs.map(t => t[0]), "teacher-class-detail"] : tabs.map(t => t[0]);
+  if(!state.view || !validViews.includes(state.view)) state.view = tabs[0][0];
+  if(state.view === "teacher-class-detail" && !state.classes.some(c => c.id === state.selectedClassId)){
+    state.view = "teacher-classes";
+  }
+  const activeTab = state.view === "teacher-class-detail" ? "teacher-classes" : state.view;
 
   const meName = (state.me && state.me.name) || "";
 
@@ -436,7 +931,7 @@ function renderShell(){
     <div class="app-shell">
       <div class="topbar">
         <div class="brand">
-          <div class="brand-mark">C</div>
+          <div class="brand-mark"><img src="icon-192.png" alt="" onerror="this.replaceWith('C')"></div>
           <div class="brand-text">
             <h1>클래스노트</h1>
             <span>Homework</span>
@@ -445,34 +940,37 @@ function renderShell(){
         <div class="who">
           <span id="me-name"></span>
           <span class="role-pill ${isTeacher ? "" : "student"}">${isTeacher ? "선생님" : "학생"}</span>
+          <button class="reset-role" id="myinfo-btn">내 정보</button>
+          ${state.canInstall ? `<button class="reset-role" id="topbar-install-btn">📲 앱 설치</button>` : ""}
           <button class="reset-role" id="logout-btn">로그아웃</button>
         </div>
       </div>
       <div class="tabs">
-        ${inClassDetail
-          ? `<button class="tab-btn active" id="back-to-classes">← 클래스 목록</button>`
-          : tabs.map(([v,label]) => `<button class="tab-btn ${state.view===v?"active":""}" data-view="${v}">${label}</button>`).join("")}
+        ${tabs.map(([v,label]) => `<button class="tab-btn ${activeTab===v?"active":""}" data-view="${v}">${label}</button>`).join("")}
       </div>
       <div id="content"></div>
     </div>
   `;
   document.getElementById("me-name").textContent = meName || "익명";
+  document.getElementById("myinfo-btn").onclick = openMyInfoModal;
   document.getElementById("logout-btn").onclick = async () => { if(await confirmDialog("로그아웃할까요?")) logout(); };
-  if(inClassDetail){
-    document.getElementById("back-to-classes").onclick = () => { state.view = "teacher-classes"; render(); };
-  }else{
-    root.querySelectorAll(".tab-btn").forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
-  }
+  const topInstallBtn = document.getElementById("topbar-install-btn");
+  if(topInstallBtn) topInstallBtn.onclick = promptInstall;
+  root.querySelectorAll(".tab-btn").forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
 
   const content = document.getElementById("content");
   if(isTeacher){
     if(state.view === "teacher-classes") renderTeacherClasses(content);
-    else if(inClassDetail) renderTeacherClassDetail(content);
+    else if(state.view === "teacher-class-detail") renderTeacherClassDetail(content);
+    else if(state.view === "teacher-grammar") renderTeacherGrammar(content);
     else renderTeacherStudents(content);
   }else{
     if(state.view === "student-homework") renderStudentHomework(content);
     else if(state.view === "student-writing") renderStudentWriting(content);
     else if(state.view === "student-speaking") renderStudentSpeaking(content);
+    else if(state.view === "student-voca") renderStudentVoca(content);
+    else if(state.view === "student-reading") renderStudentReading(content);
+    else if(state.view === "student-grammar") renderStudentGrammar(content);
     else renderStudentMine(content);
   }
 }
@@ -530,6 +1028,7 @@ function renderTeacherClasses(content){
     listEl.querySelectorAll("[data-open]").forEach(b => b.onclick = () => {
       state.selectedClassId = b.dataset.open;
       state.view = "teacher-class-detail";
+      state.editingHomeworkId = null;
       render();
     });
   }
@@ -577,121 +1076,145 @@ async function deleteClass(id){
   catch(e){ notify("삭제에 실패했습니다."); }
 }
 
-function renderRoster(el, classId){
-  el.style.display = "block";
-  const cls = state.classes.find(c => c.id === classId);
-  const assignedIds = (cls.studentIds || []);
-  const allStudentIds = Object.keys(state.users).filter(id => state.users[id].role === "student");
-  const unassignedIds = allStudentIds.filter(id => !assignedIds.includes(id));
-
-  const rowStyle = "display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);";
-  const currentHtml = assignedIds.length
-    ? assignedIds.map(id => `
-        <div style="${rowStyle}">
-          <span style="font-size:13.5px;">${esc(nameOf(id))}</span>
-          <button class="btn danger small" data-remove="${id}">제외</button>
-        </div>
-      `).join("")
-    : `<div class="empty"><span class="big">🙋</span>아직 배정된 학생이 없어요</div>`;
-
-  const addHtml = unassignedIds.length
-    ? unassignedIds.map(id => `
-        <div style="${rowStyle}">
-          <span style="font-size:13.5px;">${esc(nameOf(id))}</span>
-          <button class="btn small" data-add="${id}">추가</button>
-        </div>
-      `).join("")
-    : `<div style="font-size:12.5px;color:var(--ink-soft);padding:6px 0;">모든 학생이 이미 배정돼 있어요.</div>`;
-
-  el.innerHTML = `
-    <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:4px;">현재 학생 (${assignedIds.length}명)</div>
-    ${currentHtml}
-    <div style="font-size:12.5px;color:var(--ink-soft);margin:16px 0 4px;">학생 추가<span style="opacity:.75;"> — 아직 이 클래스에 없는 학생만 보여요</span></div>
-    ${addHtml}
-  `;
-
-  el.querySelectorAll("[data-remove]").forEach(b => b.onclick = async () => {
-    try{ await state.db.doc(`classes/${classId}`).update({studentIds: assignedIds.filter(id => id !== b.dataset.remove)}); }
-    catch(e){ notify("변경에 실패했습니다."); }
-  });
-  el.querySelectorAll("[data-add]").forEach(b => b.onclick = async () => {
-    try{ await state.db.doc(`classes/${classId}`).update({studentIds: [...assignedIds, b.dataset.add]}); }
-    catch(e){ notify("변경에 실패했습니다."); }
-  });
-}
-
-// ---------- TEACHER: CLASS DETAIL ----------
+// ---------- TEACHER: CLASS DETAIL (roster + homework + submissions) ----------
 function renderTeacherClassDetail(content){
   const cls = state.classes.find(c => c.id === state.selectedClassId);
-  if(!cls){
-    content.innerHTML = `<div class="card"><div class="empty"><span class="big">🗂️</span>클래스를 찾을 수 없어요</div></div>`;
-    return;
-  }
+  if(!cls){ renderTeacherClasses(content); return; }
+  const editing = state.editingHomeworkId ? state.homework.find(h => h.id === state.editingHomeworkId) : null;
+  const hwList = state.homework.filter(h => h.classId === cls.id);
+
   content.innerHTML = `
+    <button class="btn ghost small" id="back-to-classes" style="margin-bottom:10px;">← 클래스 목록</button>
     <div class="card">
       <h2>${esc(cls.name)}<span class="sub">${esc(fmtSchedule(cls.schedule))}</span></h2>
-    </div>
-    <div class="card">
-      <h2>학생 배정<span class="sub">이 클래스에 속한 학생을 선택하세요</span></h2>
-      <div class="roster" id="roster"></div>
-    </div>
-    <div class="card">
-      <h2>Grammar 등록<span class="sub">이 클래스에 Grammar 포인트를 등록하세요</span></h2>
       <div class="field">
-        <label>Grammar 포인트</label>
-        <textarea id="hw-grammar" placeholder="예: 현재완료 (have/has + p.p.) - 과거에 시작된 일이 지금까지 영향을 줄 때 사용해요"></textarea>
+        <label>현재 학생 (${(cls.studentIds||[]).length}명)</label>
+        <div id="class-roster-current"></div>
       </div>
-      <button class="btn" id="hw-submit">Grammar 등록</button>
+      <div class="field">
+        <label>학생 추가<span class="sub" style="display:inline;margin-left:6px;">아직 이 클래스에 없는 학생만 보여요</span></label>
+        <div id="class-roster-add"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>${editing ? "숙제 수정" : "숙제 등록"}<span class="sub">${editing ? "내용을 고치고 저장하세요" : "이 클래스에 새 숙제를 등록하세요"}</span></h2>
+      <div class="field">
+        <label>제목</label>
+        <input type="text" id="hw-title" placeholder="예: Unit 3 - My Family" value="${editing ? esc(editing.title) : ""}">
+      </div>
+      <div class="field">
+        <label>내용</label>
+        <textarea id="hw-content" placeholder="숙제 내용을 입력하세요">${editing ? esc(editing.content) : ""}</textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="hw-submit">${editing ? "수정 완료" : "숙제 등록"}</button>
+        ${editing ? `<button class="btn secondary" id="hw-cancel-edit">취소</button>` : ""}
+      </div>
     </div>
     <div class="card">
-      <h2>등록된 Grammar<span class="sub">이 클래스의 최근 등록 내역</span></h2>
+      <h2>등록된 숙제<span class="sub">${hwList.length}개</span></h2>
       <div id="hw-list"></div>
     </div>
+
     <div class="card">
-      <h2>제출물<span class="sub">이 클래스 학생들이 제출한 Writing / Speaking</span></h2>
+      <h2>제출물 확인</h2>
+      <div class="tabs" style="margin-bottom:14px;">
+        <button class="tab-btn ${state.teacherSubFilter==='writing'?'active':''}" data-subfilter="writing">Sentence</button>
+        <button class="tab-btn ${state.teacherSubFilter==='speaking'?'active':''}" data-subfilter="speaking">Shadowing</button>
+        <button class="tab-btn ${state.teacherSubFilter==='voca'?'active':''}" data-subfilter="voca">Voca</button>
+        <button class="tab-btn ${state.teacherSubFilter==='reading'?'active':''}" data-subfilter="reading">Reading</button>
+        <button class="tab-btn ${state.teacherSubFilter==='grammar'?'active':''}" data-subfilter="grammar">Grammar</button>
+      </div>
       <div id="sub-list"></div>
     </div>
   `;
-  renderRoster(document.getElementById("roster"), cls.id);
-  document.getElementById("hw-submit").onclick = submitHomework;
 
-  const list = state.homework.filter(h => h.classId === cls.id);
-  const listEl = document.getElementById("hw-list");
-  if(!list.length){
-    listEl.innerHTML = `<div class="empty"><span class="big">📝</span>등록된 Grammar가 없어요</div>`;
+  document.getElementById("back-to-classes").onclick = () => { state.view = "teacher-classes"; render(); };
+  content.querySelectorAll("[data-subfilter]").forEach(b => b.onclick = () => {
+    state.teacherSubFilter = b.dataset.subfilter;
+    renderTeacherClassDetail(content);
+  });
+
+  // roster
+  const currentEl = document.getElementById("class-roster-current");
+  const addEl = document.getElementById("class-roster-add");
+  const allStudentIds = Object.keys(state.users).filter(id => state.users[id].role === "student");
+  const memberIds = cls.studentIds || [];
+  const assignedAnywhere = new Set(state.classes.flatMap(c => c.studentIds || []));
+  const nonMemberIds = allStudentIds.filter(id => !assignedAnywhere.has(id));
+
+  if(!memberIds.length){
+    currentEl.innerHTML = `<span style="font-size:12.5px;color:var(--ink-soft);">아직 배정된 학생이 없어요.</span>`;
   }else{
-    listEl.innerHTML = list.map(h => `
+    currentEl.innerHTML = memberIds.map(id => `
+      <div class="word-row"><span class="en">${esc(nameOf(id))}</span><button class="btn danger small" data-remove="${id}">제외</button></div>
+    `).join("");
+    currentEl.querySelectorAll("[data-remove]").forEach(b => b.onclick = async () => {
+      try{ await state.db.doc(`classes/${cls.id}`).update({studentIds: memberIds.filter(id => id !== b.dataset.remove)}); }
+      catch(e){ notify("변경에 실패했습니다."); }
+    });
+  }
+
+  if(!nonMemberIds.length){
+    addEl.innerHTML = `<span style="font-size:12.5px;color:var(--ink-soft);">${allStudentIds.length ? "모든 학생이 이미 배정돼 있어요." : "가입한 학생이 아직 없어요."}</span>`;
+  }else{
+    addEl.innerHTML = nonMemberIds.map(id => `
+      <div class="word-row"><span class="en">${esc(nameOf(id))}</span><button class="btn small" data-add="${id}">추가</button></div>
+    `).join("");
+    addEl.querySelectorAll("[data-add]").forEach(b => b.onclick = async () => {
+      try{ await state.db.doc(`classes/${cls.id}`).update({studentIds: [...memberIds, b.dataset.add]}); }
+      catch(e){ notify("변경에 실패했습니다."); }
+    });
+  }
+
+  // homework form
+  document.getElementById("hw-submit").onclick = editing ? updateHomework : submitHomework;
+  if(editing) document.getElementById("hw-cancel-edit").onclick = () => { state.editingHomeworkId = null; renderTeacherClassDetail(document.getElementById("content")); };
+
+  const hwListEl = document.getElementById("hw-list");
+  if(!hwList.length){
+    hwListEl.innerHTML = `<div class="empty"><span class="big">📝</span>등록된 숙제가 없어요</div>`;
+  }else{
+    hwListEl.innerHTML = hwList.map(h => `
       <div class="hw-item">
-        <span class="type-badge grammar">Grammar</span>
+        <h3>${esc(h.title)}</h3>
         <div class="meta">${fmtTime(h.createdAt)}</div>
         <div class="content">${esc(h.content)}</div>
-        <button class="btn danger small" style="margin-top:8px;" data-hwdel="${h.id}">삭제</button>
+        <div class="btn-row" style="margin-top:8px;">
+          <button class="btn secondary small" data-hwedit="${h.id}">편집</button>
+          <button class="btn danger small" data-hwdel="${h.id}">삭제</button>
+        </div>
       </div>
     `).join("");
-    listEl.querySelectorAll("[data-hwdel]").forEach(b => b.onclick = async () => {
-      if(!(await confirmDialog("이 Grammar를 삭제할까요?"))) return;
+    hwListEl.querySelectorAll("[data-hwedit]").forEach(b => b.onclick = () => {
+      state.editingHomeworkId = b.dataset.hwedit;
+      renderTeacherClassDetail(content);
+      content.scrollIntoView({behavior: "smooth", block: "start"});
+    });
+    hwListEl.querySelectorAll("[data-hwdel]").forEach(b => b.onclick = async () => {
+      if(!(await confirmDialog("이 숙제를 삭제할까요?"))) return;
       try{ await state.db.doc(`homework/${b.dataset.hwdel}`).delete(); }catch(e){}
     });
   }
 
-  const subs = state.submissions.filter(s => s.classId === cls.id);
+  // submissions
+  const subList = state.submissions.filter(s => s.classId === cls.id && s.type === (state.teacherSubFilter || "writing"));
   const subListEl = document.getElementById("sub-list");
-  if(!subs.length){
+  if(!subList.length){
     subListEl.innerHTML = `<div class="empty"><span class="big">📮</span>아직 제출된 과제가 없어요</div>`;
   }else{
-    subListEl.innerHTML = subs.map(s => {
+    subListEl.innerHTML = subList.map(s => {
       const hw = state.homework.find(h => h.id === s.homeworkId);
       return `
         <div class="sub-item">
           <div class="sub-item-head">
             <strong>${esc(nameOf(s.studentId))}</strong>
-            <span class="type-badge ${s.type==='speaking'?'speaking':''}">${s.type==='speaking'?'Speaking':'Writing'}</span>
+            <span class="type-badge ${typeBadgeClass(s.type)}">${typeBadgeLabel(s.type)}</span>
             <span class="stime">${fmtTime(s.createdAt)}</span>
           </div>
-          <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">${hw ? esc(hw.content) : "숙제 정보 없음"}</div>
-          <div class="stext">${esc(s.text)}</div>
-          ${s.originalText && s.originalText !== s.text ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">원래 문장: ${esc(s.originalText)}</div>` : ""}
-          ${s.feedback ? `<div class="feedback-box">${esc(s.feedback)}</div>` : ""}
+          <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">${hw ? esc(hw.title) : "숙제 정보 없음"}</div>
+          ${renderSubmissionBody(s)}
           <button class="btn danger small" style="margin-top:10px;" data-subdel="${s.id}">삭제</button>
         </div>
       `;
@@ -701,67 +1224,302 @@ function renderTeacherClassDetail(content){
       try{ await state.db.doc(`submissions/${b.dataset.subdel}`).delete(); }
       catch(e){ notify("삭제에 실패했습니다."); }
     });
+    subListEl.querySelectorAll("[data-fullimg]").forEach(img => img.onclick = () => showPhotoLightbox(img.dataset.fullimg));
   }
 }
 
-// ---------- TEACHER: STUDENTS ----------
-function renderTeacherStudents(content){
-  const ids = Object.keys(state.users).filter(id => state.users[id].role === "student");
-  content.innerHTML = `
-    <div class="card">
-      <h2>학생 계정 목록<span class="sub">${ids.length}명</span></h2>
-      <div id="student-list"></div>
-    </div>
-  `;
-  const el = document.getElementById("student-list");
-  if(!ids.length){
-    el.innerHTML = `<div class="empty"><span class="big">🙋</span>가입한 학생이 아직 없어요</div>`;
-    return;
-  }
-  el.innerHTML = ids.map(id => {
-    const classNames = state.classes.filter(c => (c.studentIds||[]).includes(id)).map(c => c.name);
-    return `
-      <div class="class-item">
-        <div class="class-item-head">
-          <div>
-            <h3>${esc(nameOf(id))}</h3>
-            <div class="class-schedule">${esc(id)}</div>
-            <div class="class-students-line">
-              ${classNames.length ? classNames.map(n => `<span class="chip">${esc(n)}</span>`).join("") : "배정된 클래스 없음"}
+function typeBadgeLabel(type){
+  if(type === "speaking") return "Shadowing";
+  if(type === "voca") return "Voca";
+  if(type === "reading") return "Reading";
+  if(type === "grammar") return "Grammar";
+  return "Sentence";
+}
+function typeBadgeClass(type){
+  if(type === "speaking") return "speaking";
+  if(type === "voca") return "voca";
+  if(type === "reading") return "reading";
+  if(type === "grammar") return "grammar";
+  return "";
+}
+function renderSubmissionBody(s){
+  if(s.type === "voca" || s.type === "grammar"){
+    const details = (s.details || []).map(d => {
+      if(s.type === "grammar"){
+        return `
+          <div class="fb-item ${d.correct ? "correct" : ""}">
+            <div class="fb-original" style="text-decoration:none;">${esc(d.question)}</div>
+            <div class="fb-explain">
+              내 답: ${esc(d.selectedText != null ? d.selectedText : "(빈칸)")} ${d.correct ? "✅" : `❌ (정답: ${esc(d.correctText)})`}
+              ${d.explanation ? `<br>${esc(d.explanation)}` : ""}
             </div>
           </div>
-          <div class="btn-row">
-            <button class="btn danger small" data-studel="${id}">계정 삭제</button>
-          </div>
+        `;
+      }
+      return `
+        <div class="fb-item ${d.correct ? "correct" : ""}">
+          <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:2px;">${d.direction === "e2m" ? "English → 뜻" : "뜻 → English"}</div>
+          <div class="fb-original">${esc(d.prompt)}</div>
+          <div class="fb-explain">내 답: ${esc(d.userAnswer || "(빈칸)")} ${d.correct ? "✅" : `❌ (정답: ${esc(d.answer)})`}</div>
         </div>
-      </div>
+      `;
+    }).join("");
+    return `
+      <div style="font-size:22px;font-weight:800;color:var(--pine);margin:6px 0 10px;">${s.score} / ${s.total} 점</div>
+      <div class="fb-wrap">${details}</div>
     `;
-  }).join("");
-  el.querySelectorAll("[data-studel]").forEach(b => b.onclick = () => deleteStudentAccount(b.dataset.studel));
-}
-
-async function deleteStudentAccount(id){
-  if(!(await confirmDialog("이 학생 계정을 삭제할까요? 배정된 클래스에서도 함께 제거돼요."))) return;
-  try{
-    await state.db.doc(`users/${id}`).delete();
-    const affected = state.classes.filter(c => (c.studentIds||[]).includes(id));
-    for(const c of affected){
-      await state.db.doc(`classes/${c.id}`).update({studentIds: (c.studentIds||[]).filter(sid => sid !== id)});
-    }
-  }catch(e){ notify("삭제에 실패했습니다."); }
+  }
+  return `
+    ${s.photoDataUrl ? `<img class="photo-thumb" src="${s.photoDataUrl}" data-fullimg="${s.photoDataUrl}">` : ""}
+    ${s.audioDataUrl ? `<audio controls src="${s.audioDataUrl}" style="width:100%;margin-top:8px;height:38px;"></audio>` : ""}
+    <div class="stext">${esc(s.text)}</div>
+    ${s.originalText && s.originalText !== s.text ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">원래 문장: ${esc(s.originalText)}</div>` : ""}
+    ${s.targetText ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">목표 문장: ${esc(s.targetText)}</div>` : ""}
+    ${s.feedback ? ((s.type==='speaking' || s.type==='reading') ? renderPronunciationBlock(s.feedback) : renderFeedbackBlock(s.feedback)) : ""}
+  `;
 }
 
 async function submitHomework(){
-  const contentText = document.getElementById("hw-grammar").value.trim();
-  if(!contentText){ notify("Grammar 포인트를 입력해주세요."); return; }
+  const title = document.getElementById("hw-title").value.trim();
+  const contentText = document.getElementById("hw-content").value.trim();
+  if(!title || !contentText){ notify("제목과 내용을 입력해주세요."); return; }
   const btn = document.getElementById("hw-submit");
   btn.disabled = true; btn.textContent = "등록 중...";
   try{
     await state.db.collection("homework").add({
-      classId: state.selectedClassId, title: "Grammar", content: contentText, createdAt: Date.now(), createdBy: state.uid
+      classId: state.selectedClassId, title, content: contentText, createdAt: Date.now(), createdBy: state.uid
     });
   }catch(e){ notify("등록에 실패했습니다."); }
   renderTeacherClassDetail(document.getElementById("content"));
+}
+
+async function updateHomework(){
+  const title = document.getElementById("hw-title").value.trim();
+  const contentText = document.getElementById("hw-content").value.trim();
+  if(!title || !contentText){ notify("제목과 내용을 입력해주세요."); return; }
+  const btn = document.getElementById("hw-submit");
+  btn.disabled = true; btn.textContent = "저장 중...";
+  try{
+    await state.db.doc(`homework/${state.editingHomeworkId}`).update({title, content: contentText});
+    state.editingHomeworkId = null;
+    notify("수정했어요.");
+  }catch(e){ notify("수정에 실패했습니다."); }
+  renderTeacherClassDetail(document.getElementById("content"));
+}
+
+function showPhotoLightbox(src){
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `<img src="${src}" style="max-width:100%;max-height:90vh;border-radius:10px;">`;
+  backdrop.onclick = () => backdrop.remove();
+  document.body.appendChild(backdrop);
+}
+
+// ---------- TEACHER: STUDENTS ----------
+function renderTeacherStudents(content){
+  const studentIds = Object.keys(state.users).filter(id => state.users[id].role === "student");
+  content.innerHTML = `
+    <div class="card">
+      <h2>학생 관리<span class="sub">학원을 그만둔 학생을 삭제할 수 있어요</span></h2>
+      <div id="student-list"></div>
+    </div>
+  `;
+  const listEl = document.getElementById("student-list");
+  if(!studentIds.length){
+    listEl.innerHTML = `<div class="empty"><span class="big">🎒</span>가입한 학생이 아직 없어요</div>`;
+    return;
+  }
+  listEl.innerHTML = studentIds.map(id => {
+    const u = state.users[id];
+    const classNames = state.classes.filter(c => (c.studentIds||[]).includes(id)).map(c => c.name);
+    return `
+      <div class="sub-item">
+        <div class="sub-item-head">
+          <strong>${esc(u.name)}</strong>
+          <span class="stime">@${esc(u.username || "")}</span>
+        </div>
+        <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">${classNames.length ? esc(classNames.join(", ")) : "배정된 클래스 없음"}</div>
+        <button class="btn danger small" style="margin-top:8px;" data-studel="${id}">학생 삭제</button>
+      </div>
+    `;
+  }).join("");
+  listEl.querySelectorAll("[data-studel]").forEach(b => b.onclick = () => deleteStudent(b.dataset.studel));
+}
+
+async function deleteStudent(uid){
+  const name = (state.users[uid] && state.users[uid].name) || "이 학생";
+  if(!(await confirmDialog(`${name} 학생을 삭제할까요? 클래스 배정에서도 제외되고, 로그인해도 더 이상 사용할 수 없어요.`))) return;
+  try{
+    const affected = state.classes.filter(c => (c.studentIds||[]).includes(uid));
+    for(const c of affected){
+      const nextIds = (c.studentIds||[]).filter(id => id !== uid);
+      await state.db.doc(`classes/${c.id}`).update({studentIds: nextIds});
+    }
+    await state.db.doc(`users/${uid}`).delete();
+    notify("삭제했어요.");
+  }catch(e){ notify("삭제에 실패했습니다."); }
+  renderTeacherStudents(document.getElementById("content"));
+}
+
+// ---------- TEACHER: GRAMMAR ----------
+function renderTeacherGrammar(content){
+  if(!state.grammarClassId && state.classes.length) state.grammarClassId = state.classes[0].id;
+  const sets = state.classes.length ? state.grammarSets.filter(g => g.classId === state.grammarClassId) : [];
+  content.innerHTML = `
+    <div class="card">
+      <h2>Grammar 문제 만들기<span class="sub">클래스를 고르고 AI에게 문제를 요청하세요</span></h2>
+      ${state.classes.length ? `
+        <div class="field">
+          <label>클래스</label>
+          <select id="grammar-class">${state.classes.map(c => `<option value="${c.id}" ${c.id===state.grammarClassId?"selected":""}>${esc(c.name)}</option>`).join("")}</select>
+        </div>
+        <div class="field">
+          <label>문제 개수</label>
+          <input type="text" inputmode="numeric" id="grammar-count" value="${state.grammarCount}">
+        </div>
+        <div class="field">
+          <label>주제 / 요청사항 (선택)</label>
+          <input type="text" id="grammar-topic" placeholder="예: 현재완료 시제 위주로" value="${esc(state.grammarTopic)}">
+        </div>
+        <button class="btn" id="grammar-generate" ${state.grammarGenBusy?"disabled":""}>${state.grammarGenBusy?"AI가 만드는 중...":"AI로 문제 생성"}</button>
+        ${state.grammarGenError ? `<p style="color:var(--coral);font-size:12.5px;margin-top:10px;">${esc(state.grammarGenError)}</p>` : ""}
+      ` : `<div class="empty"><span class="big">🗂️</span>먼저 클래스를 만들어 주세요</div>`}
+    </div>
+
+    ${state.grammarDraftProblems.length ? `
+      <div class="card">
+        <h2>검토 및 수정<span class="sub">학생에게 보이기 전에 내용을 고칠 수 있어요</span></h2>
+        <div id="grammar-draft-list"></div>
+        <div class="btn-row" style="margin-top:14px;">
+          <button class="btn" id="grammar-publish">이 클래스에 게시하기</button>
+          <button class="btn secondary small" id="grammar-discard">취소</button>
+        </div>
+      </div>
+    ` : ""}
+
+    <div class="card">
+      <h2>게시된 Grammar 세트<span class="sub">${sets.length}개</span></h2>
+      <div id="grammar-set-list"></div>
+    </div>
+  `;
+
+  if(!state.classes.length) return;
+  document.getElementById("grammar-class").onchange = e => { state.grammarClassId = e.target.value; renderTeacherGrammar(content); };
+  document.getElementById("grammar-count").oninput = e => { state.grammarCount = e.target.value; };
+  document.getElementById("grammar-topic").oninput = e => { state.grammarTopic = e.target.value; };
+  document.getElementById("grammar-generate").onclick = generateGrammarProblems;
+
+  if(state.grammarDraftProblems.length){
+    const listEl = document.getElementById("grammar-draft-list");
+    listEl.innerHTML = state.grammarDraftProblems.map((p, i) => `
+      <div class="hw-item">
+        <div class="field">
+          <label>문제 ${i+1}</label>
+          <textarea data-gfield="question" data-gidx="${i}">${esc(p.question)}</textarea>
+        </div>
+        ${p.choices.map((c, ci) => `
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="radio" name="grammar-answer-${i}" data-gidx="${i}" data-gci="${ci}" ${p.answerIndex===ci?"checked":""} style="width:auto;">
+            <input type="text" data-gfield="choice" data-gidx="${i}" data-gci="${ci}" value="${esc(c)}" style="flex:1;">
+          </div>
+        `).join("")}
+        <div class="field">
+          <label>설명 (정답 이유)</label>
+          <textarea data-gfield="explanation" data-gidx="${i}">${esc(p.explanation || "")}</textarea>
+        </div>
+        <button class="btn danger small" data-gdel="${i}">이 문제 삭제</button>
+      </div>
+    `).join("");
+    listEl.querySelectorAll('[data-gfield="question"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].question = e.target.value; });
+    listEl.querySelectorAll('[data-gfield="explanation"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].explanation = e.target.value; });
+    listEl.querySelectorAll('[data-gfield="choice"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].choices[+e.target.dataset.gci] = e.target.value; });
+    listEl.querySelectorAll('input[type=radio]').forEach(el => el.onchange = e => { state.grammarDraftProblems[+e.target.dataset.gidx].answerIndex = +e.target.dataset.gci; });
+    listEl.querySelectorAll('[data-gdel]').forEach(el => el.onclick = () => {
+      state.grammarDraftProblems.splice(+el.dataset.gdel, 1);
+      renderTeacherGrammar(content);
+    });
+    document.getElementById("grammar-publish").onclick = publishGrammarSet;
+    document.getElementById("grammar-discard").onclick = () => { state.grammarDraftProblems = []; renderTeacherGrammar(content); };
+  }
+
+  const setListEl = document.getElementById("grammar-set-list");
+  if(!sets.length){
+    setListEl.innerHTML = `<div class="empty"><span class="big">✏️</span>아직 게시된 문제가 없어요</div>`;
+  }else{
+    setListEl.innerHTML = sets.map(g => `
+      <div class="hw-item">
+        <h3>${esc(g.title || "Grammar 문제")}</h3>
+        <div class="meta">${fmtTime(g.createdAt)} · 문제 ${g.problems.length}개</div>
+        <button class="btn danger small" style="margin-top:8px;" data-gsetdel="${g.id}">삭제</button>
+      </div>
+    `).join("");
+    setListEl.querySelectorAll("[data-gsetdel]").forEach(b => b.onclick = async () => {
+      if(!(await confirmDialog("이 문제 세트를 삭제할까요?"))) return;
+      try{ await state.db.doc(`grammarSets/${b.dataset.gsetdel}`).delete(); }catch(e){ notify("삭제에 실패했습니다."); }
+    });
+  }
+}
+
+async function generateGrammarProblems(){
+  if(!state.sample){ notify("이 화면에서는 AI 기능을 사용할 수 없어요."); return; }
+  const count = Math.max(1, Math.min(20, parseInt(state.grammarCount, 10) || 5));
+  const topic = (state.grammarTopic || "").trim();
+  state.grammarGenBusy = true;
+  state.grammarGenError = null;
+  renderTeacherGrammar(document.getElementById("content"));
+
+  const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 영어 선생님입니다.
+학생들이 풀 수 있는 객관식 영문법 문제 ${count}개를 만들어주세요.
+${topic ? `문제 주제/요청사항: ${topic}` : "주제는 자유롭게, 초등 고학년 수준에서 자주 헷갈리는 문법 포인트 위주로 만들어주세요."}
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
+{
+  "problems": [
+    {
+      "question": "문제 문장 (빈칸은 ___로 표시하거나, '다음 중 올바른 문장은?' 형태 등)",
+      "choices": ["선택지1", "선택지2", "선택지3", "선택지4"],
+      "answerIndex": 0,
+      "explanation": "정답인 이유를 초등학생이 이해하기 쉬운 한국어로 짧게 설명"
+    }
+  ]
+}
+answerIndex는 choices 배열에서 정답의 위치(0부터 시작)입니다. 문제 수는 정확히 ${count}개로 만드세요.`;
+
+  try{
+    const res = await state.sample(prompt, {});
+    const parsed = extractJsonLoose(res.text);
+    const problems = (parsed && Array.isArray(parsed.problems)) ? parsed.problems.filter(p => p && p.question && Array.isArray(p.choices) && p.choices.length >= 2) : [];
+    if(!problems.length){
+      state.grammarGenError = "문제를 만들지 못했어요. 다시 시도해 주세요.";
+    }else{
+      state.grammarDraftProblems = problems.map(p => ({
+        question: p.question, choices: p.choices.slice(0, 4),
+        answerIndex: Math.max(0, Math.min((p.choices.length||4)-1, p.answerIndex || 0)),
+        explanation: p.explanation || ""
+      }));
+    }
+  }catch(e){
+    state.grammarGenError = (e && e.message) ? e.message : String(e);
+  }
+  state.grammarGenBusy = false;
+  renderTeacherGrammar(document.getElementById("content"));
+}
+
+async function publishGrammarSet(){
+  const problems = state.grammarDraftProblems.filter(p => p.question.trim() && p.choices.every(c => c.trim()));
+  if(!problems.length){ notify("문제 내용을 확인해주세요."); return; }
+  const btn = document.getElementById("grammar-publish");
+  btn.disabled = true; btn.textContent = "게시 중...";
+  try{
+    await state.db.collection("grammarSets").add({
+      classId: state.grammarClassId,
+      title: `Grammar 문제 - ${new Date().toLocaleDateString("ko-KR")}`,
+      problems, createdAt: Date.now(), createdBy: state.uid
+    });
+    state.grammarDraftProblems = [];
+    notify("게시했어요! 학생들이 볼 수 있어요.");
+  }catch(e){ notify("게시에 실패했습니다."); }
+  renderTeacherGrammar(document.getElementById("content"));
 }
 
 // ---------- STUDENT: HOMEWORK ----------
@@ -773,6 +1531,19 @@ function myLatestHomework(){
   if(!cls) return null;
   const list = state.homework.filter(h => h.classId === cls.id);
   return list.length ? list[0] : null; // homework already ordered desc
+}
+function myLatestStorySubmission(){
+  // Prefer a Story submitted for the current homework; fall back to the
+  // student's most recent Story submission overall (submissions are
+  // already ordered desc by createdAt). Once a Story has been shadowed and
+  // submitted, it's excluded — it shouldn't keep showing as the target.
+  const hw = myLatestHomework();
+  const mine = state.submissions.filter(s => s.studentId === state.uid && s.type === "writing" && s.shadowingText && !s.shadowedAt);
+  if(hw){
+    const forHw = mine.find(s => s.homeworkId === hw.id);
+    if(forHw) return forHw;
+  }
+  return mine.length ? mine[0] : null;
 }
 
 function renderStudentHomework(content){
@@ -790,7 +1561,7 @@ function renderStudentHomework(content){
       <h2>최신 숙제</h2>
       ${hw ? `
         <div class="hw-item">
-          <span class="type-badge grammar">Grammar</span>
+          <h3>${esc(hw.title)}</h3>
           <div class="meta">${fmtTime(hw.createdAt)}</div>
           <div class="content">${esc(hw.content)}</div>
         </div>
@@ -799,119 +1570,170 @@ function renderStudentHomework(content){
   `;
 }
 
-// ---------- STUDENT: WRITING ----------
+// ---------- STUDENT: WRITING (Story) ----------
 function renderStudentWriting(content){
   content.innerHTML = `
     <div class="card">
-      <h2>Writing 제출<span class="sub">영어 문장을 자유롭게 작성해 보세요 (여러 문장 가능)</span></h2>
-      <div class="field">
-        <textarea id="writing-text" placeholder="예: I go to school every day. My friend and me like pizza.">${esc(state.writingDraft || "")}</textarea>
+      <h2>Sentence 제출<span class="sub">손으로 쓴 작문 사진을 올리면 AI가 첨삭해줘요</span></h2>
+      <div class="photo-upload" id="photo-drop">
+        <label for="writing-photo-input" style="cursor:pointer;">
+          <span style="font-size:28px;display:block;margin-bottom:6px;">📷</span>
+          <span style="font-size:13.5px;color:var(--ink-soft);">손으로 쓴 작문 사진을 올려주세요</span>
+        </label>
+        <input type="file" id="writing-photo-input" accept="image/*">
+        ${state.writingPhotoPreview ? `<img class="photo-preview" src="${state.writingPhotoPreview}">` : ""}
       </div>
-      <div class="btn-row">
-        <button class="btn" id="writing-check" ${state.writingBusy?"disabled":""}>${state.writingBusy?"AI가 확인하는 중...":"AI 첨삭 받기"}</button>
-      </div>
-      <div id="writing-feedback-wrap"></div>
+      ${state.writingPhotoPreview ? `
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn" id="writing-photo-check" ${state.writingPhotoBusy?"disabled":""}>${state.writingPhotoBusy?"AI가 사진을 읽는 중...":"사진 첨삭 받기"}</button>
+          <button class="btn secondary small" id="writing-photo-clear" type="button">사진 지우기</button>
+        </div>
+      ` : ""}
+      <div id="writing-photo-feedback-wrap"></div>
     </div>
   `;
-  document.getElementById("writing-text").oninput = e => state.writingDraft = e.target.value;
-  document.getElementById("writing-check").onclick = () => runWritingCheck(false);
-  const wrap = document.getElementById("writing-feedback-wrap");
-  if(state.writingFeedback){
-    wrap.innerHTML = `
-      <div class="feedback-box" id="writing-fb-text">${esc(state.writingFeedback)}</div>
-      <div class="field" style="margin-top:14px;">
-        <label>첨삭을 참고해서 문장을 고쳐보세요 (선생님께는 이 내용이 제출돼요)</label>
-        <textarea id="writing-corrected">${esc(state.writingCorrected != null ? state.writingCorrected : state.writingDraft)}</textarea>
-      </div>
-      <div class="btn-row">
-        <button class="btn secondary small" id="writing-recheck" ${state.writingBusy?"disabled":""}>${state.writingBusy?"확인 중...":"고친 문장 다시 검사"}</button>
-        <button class="btn" id="writing-submit">선생님께 제출하기</button>
+  document.getElementById("writing-photo-input").onchange = onWritingPhotoSelected;
+  const clearBtn = document.getElementById("writing-photo-clear");
+  if(clearBtn) clearBtn.onclick = () => {
+    state.writingPhotoPreview = null; state.writingPhotoBase64 = null; state.writingPhotoMime = null;
+    state.writingPhotoFeedback = null; state.writingPhotoError = null; state.writingPhotoTranscript = null;
+    renderStudentWriting(document.getElementById("content"));
+  };
+  const photoCheckBtn = document.getElementById("writing-photo-check");
+  if(photoCheckBtn) photoCheckBtn.onclick = () => runWritingPhotoCheck();
+
+  const photoWrap = document.getElementById("writing-photo-feedback-wrap");
+  if(state.writingPhotoBusy){
+    photoWrap.innerHTML = `<div class="thinking">AI 선생님이 사진 속 글씨를 읽고 있어요...</div>`;
+  }else if(state.writingPhotoError){
+    photoWrap.innerHTML = `<div class="thinking">첨삭을 가져오지 못했어요. 다시 시도해 주세요.<br><span style="font-size:11px;opacity:.7;">${esc(state.writingPhotoError)}</span></div>`;
+  }else if(state.writingPhotoFeedback){
+    photoWrap.innerHTML = `
+      ${state.writingPhotoTranscript ? `<div class="transcript-box">AI가 읽은 내용:<br>${esc(state.writingPhotoTranscript)}</div>` : ""}
+      ${renderFeedbackBlock(state.writingPhotoFeedback)}
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn" id="writing-photo-submit">선생님께 제출하기</button>
       </div>
     `;
-    document.getElementById("writing-corrected").oninput = e => state.writingCorrected = e.target.value;
-    document.getElementById("writing-recheck").onclick = () => runWritingCheck(true);
-    document.getElementById("writing-submit").onclick = submitWriting;
+    document.getElementById("writing-photo-submit").onclick = submitWritingPhoto;
   }
 }
 
-async function runWritingCheck(fromCorrected){
-  const sourceId = fromCorrected ? "writing-corrected" : "writing-text";
-  const text = (document.getElementById(sourceId).value || "").trim();
-  if(!text){ notify("문장을 먼저 작성해 주세요."); return; }
-  if(fromCorrected) state.writingCorrected = text; else state.writingDraft = text;
-  if(!state.sample){ notify("이 화면에서는 AI 첨삭을 사용할 수 없어요."); return; }
-  state.writingBusy = true;
-  state.writingFeedback = state.writingFeedback || "";
-  renderStudentWriting(document.getElementById("content"));
-  const fbWrap = document.getElementById("writing-feedback-wrap");
-  fbWrap.innerHTML = `<div class="thinking">AI 선생님이 문장을 읽고 있어요...</div>`;
-  const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 다정한 영어 선생님입니다.
-아래는 학생이 쓴 영어 문장입니다. 문법 오류를 찾아 첨삭해 주세요.
-
-규칙:
-- 문장 하나하나에 대해: 원문, 고친 문장(틀린 곳이 없으면 "정확해요!"라고만 표시), 무엇이 왜 틀렸는지 초등학생이 이해하기 쉬운 한국어로 짧게 설명
-- 전문 문법 용어는 최대한 쉬운 말로 풀어서 설명
-- 마지막에 잘한 점을 짚어주는 격려 한마디를 덧붙이기
-- 출력은 순수 텍스트로, 마크다운 기호(*, #) 없이 자연스럽게 줄바꿈해서 작성
-
-학생 문장:
-${text}`;
+async function onWritingPhotoSelected(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
   try{
-    const res = await state.sample(prompt, {
-      onText: ({text: t}) => {
-        state.writingFeedback = t;
-        const fbEl = document.getElementById("writing-fb-text");
-        if(fbEl) fbEl.textContent = t;
-        else fbWrap.innerHTML = `<div class="feedback-box" id="writing-fb-text">${esc(t)}</div>`;
-      }
-    });
-    state.writingFeedback = res.text;
-    if(!fromCorrected) state.writingCorrected = text;
-  }catch(e){
-    state.writingFeedback = "";
-    fbWrap.innerHTML = `<div class="thinking">첨삭을 가져오지 못했어요. 다시 시도해 주세요.</div>`;
+    const { dataUrl, base64, mimeType } = await compressImageFile(file, 1100, 0.72);
+    state.writingPhotoPreview = dataUrl;
+    state.writingPhotoBase64 = base64;
+    state.writingPhotoMime = mimeType;
+    state.writingPhotoFeedback = null; state.writingPhotoError = null; state.writingPhotoTranscript = null;
+  }catch(err){
+    notify("사진을 불러오지 못했어요. 다시 시도해 주세요.");
   }
-  state.writingBusy = false;
   renderStudentWriting(document.getElementById("content"));
 }
 
-async function submitWriting(){
-  const original = state.writingDraft || "";
-  const corrected = state.writingCorrected != null ? state.writingCorrected : original;
+async function runWritingPhotoCheck(){
+  if(!state.sample){ notify("이 화면에서는 AI 첨삭을 사용할 수 없어요."); return; }
+  state.writingPhotoBusy = true;
+  state.writingPhotoError = null;
+  renderStudentWriting(document.getElementById("content"));
+
+  const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 다정한 영어 선생님입니다.
+첨부된 사진은 학생이 손으로 쓴 영어 작문입니다. 먼저 사진 속 영어 문장을 최대한 정확하게 읽어서 텍스트로 옮기고, 그 다음 문법 오류를 찾아 첨삭해 주세요.
+초등학교 고학년 수준에 맞게, 전문 문법 용어는 최대한 쉬운 말로 풀어서 설명해 주세요.
+
+설명(explanation) 작성 규칙:
+- "우리 5학년 친구", "OO학년 친구" 같이 학생을 부르는 말은 쓰지 마세요. 학년/나이를 언급하거나 지칭하지 말고 바로 설명으로 시작하세요.
+- 한 문장에 동사가 두 개 겹쳐 쓰였다면(예: "have a eat", "was go" 등) 반드시 그 부분을 콕 짚어서 "동사가 두 개 겹쳐서 쓰였어요" 같이 원인을 먼저 설명한 뒤 고친 이유를 설명하세요. 그냥 고친 문장만 보여주고 넘어가지 마세요.
+- 오류의 종류(동사 중복, 시제, 전치사 빠짐, 철자 등)를 먼저 짚어준 다음, 왜 그렇게 고쳐야 하는지 이어서 설명하세요.
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
+{
+  "transcript": "사진에서 읽은 영어 문장 전체 (줄바꿈 포함 가능)",
+  "items": [
+    {"original": "학생이 쓴 문장 원문", "correct": false, "corrected": "고친 문장", "explanation": "무엇이 왜 틀렸는지 초등학생이 이해하기 쉬운 한국어로 짧게 설명 (전문 문법 용어는 쉬운 말로, 학생을 부르는 말 없이)"},
+    {"original": "이미 맞는 문장", "correct": true, "corrected": "이미 맞는 문장", "explanation": "정확해요!"}
+  ],
+  "encouragement": "잘한 점을 짚어주는 격려 한마디 (한국어, 학생을 부르는 말 없이)"
+}
+글씨를 알아보기 어려운 부분이 있으면 최선으로 추측해서 읽고, transcript에 그대로 반영하세요. 문장은 마침표 등으로 나누어 각각 하나의 item으로 만드세요.`;
+
+  try{
+    const res = await state.sample(prompt, { image: { base64: state.writingPhotoBase64, mimeType: state.writingPhotoMime } });
+    state.writingPhotoFeedback = res.text;
+    let parsedTranscript = "";
+    try{
+      let s = res.text.trim();
+      const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if(fence) s = fence[1].trim();
+      const start = s.indexOf("{"); const end = s.lastIndexOf("}");
+      if(start !== -1 && end !== -1) s = s.slice(start, end + 1);
+      const data = JSON.parse(s);
+      parsedTranscript = data.transcript || "";
+    }catch(e){}
+    state.writingPhotoTranscript = parsedTranscript;
+  }catch(e){
+    state.writingPhotoFeedback = "";
+    state.writingPhotoError = (e && e.message) ? e.message : String(e);
+  }
+  state.writingPhotoBusy = false;
+  renderStudentWriting(document.getElementById("content"));
+}
+
+async function submitWritingPhoto(){
+  const transcript = state.writingPhotoTranscript || "";
   const hw = myLatestHomework();
   const cls = myClass();
-  const btn = document.getElementById("writing-submit");
+  const btn = document.getElementById("writing-photo-submit");
   btn.disabled = true; btn.textContent = "제출 중...";
+  // Firestore documents cap out at 256 KiB; skip embedding the photo if it's too close to that limit.
+  const photoOk = state.writingPhotoPreview && state.writingPhotoPreview.length < 180000;
+  // Build the "clean" (grammar-corrected) version of what the student wrote —
+  // this becomes the sentence they'll shadow later, so they practice
+  // pronouncing correct English rather than their own mistakes.
+  const parsedFeedback = extractJsonLoose(state.writingPhotoFeedback);
+  const shadowingText = (parsedFeedback && Array.isArray(parsedFeedback.items))
+    ? parsedFeedback.items.map(it => it.corrected || it.original || "").filter(Boolean).join("\n")
+    : transcript;
   try{
     await state.db.collection("submissions").add({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
-      type: "writing", text: corrected, originalText: original, feedback: state.writingFeedback, createdAt: Date.now()
+      type: "writing", text: transcript, feedback: state.writingPhotoFeedback, shadowingText,
+      photoDataUrl: photoOk ? state.writingPhotoPreview : null, createdAt: Date.now()
     });
-    state.writingDraft = ""; state.writingCorrected = null; state.writingFeedback = null;
-    notify("제출 완료! 선생님이 확인하실 수 있어요.");
-  }catch(e){ notify("제출에 실패했습니다."); }
+    state.writingPhotoPreview = null; state.writingPhotoBase64 = null; state.writingPhotoMime = null;
+    state.writingPhotoFeedback = null; state.writingPhotoTranscript = null;
+    notify(photoOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (사진이 커서 사진 없이 텍스트만 저장됐어요)");
+  }catch(e){ notify("제출에 실패했습니다. (사진이 너무 클 수 있어요)"); }
   renderStudentWriting(document.getElementById("content"));
 }
 
-// ---------- STUDENT: SPEAKING ----------
+// ---------- STUDENT: SPEAKING (shadowing) ----------
 function renderStudentSpeaking(content){
-  const supported = ("webkitSpeechRecognition" in window) || ("SpeechRecognition" in window);
+  const supported = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder;
+  const storySub = myLatestStorySubmission();
+  const target = storySub && storySub.shadowingText;
   content.innerHTML = `
     <div class="card">
-      <h2>Speaking 제출<span class="sub">영어로 말해보고 AI에게 첨삭을 받아보세요</span></h2>
-      ${!supported ? `<div class="empty"><span class="big">🎤</span>이 브라우저는 음성 인식을 지원하지 않아요.<br>Chrome 브라우저를 이용해 주세요.</div>` : `
+      <h2>Shadowing 제출<span class="sub">문장을 듣고 최대한 똑같이 따라 말해보세요</span></h2>
+      ${!supported ? `<div class="empty"><span class="big">🎤</span>이 브라우저는 음성 녹음을 지원하지 않아요.<br>Chrome 브라우저를 이용해 주세요.</div>` : `
+        ${target ? `
+          <div class="field">
+            <label>따라 말할 문장<span class="sub" style="display:inline;margin-left:6px;">내가 제출한 Sentence를 교정한 문장이에요</span></label>
+            <div class="target-box">🗣️ 다음 문장을 녹음해서 제출하세요.\n${esc(target)}</div>
+          </div>
+        ` : `<div class="empty" style="padding:16px;"><span class="big">📭</span>먼저 Sentence를 제출해주세요.<br>제출한 문장을 교정해서 여기서 따라 말하게 돼요.</div>`}
         <div class="record-box">
           <span class="rec-dot ${state.speakingRecording?"live":""}"></span>
-          <span class="live-transcript" id="live-transcript">${esc(state.speakingTranscript) || (state.speakingRecording ? "듣고 있어요..." : "녹음 버튼을 눌러 시작하세요")}</span>
+          <span class="live-transcript" id="live-transcript">${state.speakingRecording ? "녹음 중이에요... 다 말했으면 눌러서 멈추세요" : (state.speakingAudioBase64 ? "녹음 완료! 아래에서 확인받아 보세요" : "녹음 버튼을 눌러 시작하세요")}</span>
           <button class="btn ${state.speakingRecording?"danger":""}" id="rec-btn">${state.speakingRecording?"녹음 중지":"녹음 시작"}</button>
         </div>
-        ${state.speakingTranscript && !state.speakingRecording ? `
-          <div class="field" style="margin-top:14px;">
-            <label>인식된 문장 (수정 가능)</label>
-            <textarea id="speaking-text">${esc(state.speakingTranscript)}</textarea>
-          </div>
-          <div class="btn-row">
-            <button class="btn" id="speaking-check" ${state.speakingBusy?"disabled":""}>${state.speakingBusy?"AI가 확인하는 중...":"AI 첨삭 받기"}</button>
+        ${state.speakingAudioBase64 && !state.speakingRecording ? `
+          <div class="btn-row" style="margin-top:14px;">
+            <button class="btn" id="speaking-check" ${state.speakingBusy?"disabled":""}>${state.speakingBusy?"AI가 듣는 중...":"AI 발음 확인받기"}</button>
+            <button class="btn secondary small" id="speaking-clear" type="button">지우고 다시 녹음</button>
           </div>
         ` : ""}
         <div id="speaking-feedback-wrap"></div>
@@ -920,131 +1742,721 @@ function renderStudentSpeaking(content){
   `;
   if(!supported) return;
   document.getElementById("rec-btn").onclick = state.speakingRecording ? stopRecording : startRecording;
-  const textArea = document.getElementById("speaking-text");
-  if(textArea) textArea.oninput = e => state.speakingTranscript = e.target.value;
-  document.getElementById("speaking-check") && (document.getElementById("speaking-check").onclick = () => runSpeakingCheck(false));
+  document.getElementById("speaking-check") && (document.getElementById("speaking-check").onclick = runSpeakingCheck);
+  const clearBtn = document.getElementById("speaking-clear");
+  if(clearBtn) clearBtn.onclick = () => {
+    state.speakingTranscript = ""; state.speakingFeedback = null; state.speakingError = null;
+    state.speakingAudioBase64 = null; state.speakingAudioMime = null; state.speakingPlaybackDataUrl = null; state.speakingPlaybackMime = null;
+    renderStudentSpeaking(document.getElementById("content"));
+  };
   const wrap = document.getElementById("speaking-feedback-wrap");
-  if(wrap && state.speakingFeedback){
+  if(wrap && state.speakingBusy){
+    wrap.innerHTML = `<div class="thinking">AI 선생님이 발음을 듣고 있어요...</div>`;
+  }else if(wrap && state.speakingError){
+    wrap.innerHTML = `<div class="thinking">확인하지 못했어요. 다시 시도해 주세요.<br><span style="font-size:11px;opacity:.7;">${esc(state.speakingError)}</span></div>`;
+  }else if(wrap && state.speakingFeedback){
     wrap.innerHTML = `
-      <div class="feedback-box" id="speaking-fb-text">${esc(state.speakingFeedback)}</div>
-      <div class="field" style="margin-top:14px;">
-        <label>첨삭을 참고해서 문장을 고쳐보세요 (선생님께는 이 내용이 제출돼요)</label>
-        <textarea id="speaking-corrected">${esc(state.speakingCorrected != null ? state.speakingCorrected : state.speakingTranscript)}</textarea>
-      </div>
-      <div class="btn-row">
-        <button class="btn secondary small" id="speaking-recheck" ${state.speakingBusy?"disabled":""}>${state.speakingBusy?"확인 중...":"고친 문장 다시 검사"}</button>
+      ${state.speakingTranscript ? `<div class="transcript-box">AI가 들은 내용: ${esc(state.speakingTranscript)}</div>` : ""}
+      ${renderPronunciationBlock(state.speakingFeedback)}
+      <div class="btn-row" style="margin-top:14px;">
         <button class="btn" id="speaking-submit">선생님께 제출하기</button>
       </div>
     `;
-    document.getElementById("speaking-corrected").oninput = e => state.speakingCorrected = e.target.value;
-    document.getElementById("speaking-recheck").onclick = () => runSpeakingCheck(true);
     document.getElementById("speaking-submit").onclick = submitSpeaking;
   }
 }
 
 function startRecording(){
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recognition = new SR();
-  recognition.lang = "en-US";
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  let finalText = "";
-  recognition.onresult = (ev) => {
-    let interim = "";
-    for(let i = ev.resultIndex; i < ev.results.length; i++){
-      const r = ev.results[i];
-      if(r.isFinal) finalText += r[0].transcript + " ";
-      else interim += r[0].transcript;
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    state.mediaStream = stream;
+    state.audioChunks = [];
+    let mr;
+    try{ mr = new MediaRecorder(stream); }catch(e){ mr = null; }
+    if(!mr){
+      stream.getTracks().forEach(t => t.stop());
+      notify("이 브라우저에서는 녹음을 지원하지 않아요.");
+      return;
     }
-    state.speakingTranscript = (finalText + interim).trim();
-    const live = document.getElementById("live-transcript");
-    if(live) live.textContent = state.speakingTranscript || "듣고 있어요...";
-  };
-  recognition.onerror = () => {};
-  recognition.onend = () => {
-    if(state.speakingRecording){
-      // auto restart if still "recording" (some browsers stop after silence)
-      try{ recognition.start(); }catch(e){}
-    }
-  };
-  try{
-    recognition.start();
-    state.recognition = recognition;
+    mr.ondataavailable = (e) => { if(e.data && e.data.size) state.audioChunks.push(e.data); };
+    mr.start();
+    state.mediaRecorder = mr;
     state.speakingRecording = true;
     state.speakingTranscript = "";
     state.speakingFeedback = null;
+    state.speakingAudioBase64 = null; state.speakingAudioMime = null; state.speakingPlaybackDataUrl = null; state.speakingPlaybackMime = null;
     renderStudentSpeaking(document.getElementById("content"));
-  }catch(e){
-    notify("마이크를 사용할 수 없어요. 권한을 확인해 주세요.");
-  }
+  }).catch(() => {
+    notify("마이크 권한을 확인해 주세요.");
+  });
+}
+
+function blobToBase64(blob){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("오디오를 읽지 못했어요."));
+    reader.onload = () => resolve(reader.result); // full data: URL
+    reader.readAsDataURL(blob);
+  });
 }
 
 function stopRecording(){
   state.speakingRecording = false;
-  if(state.recognition){
-    try{ state.recognition.stop(); }catch(e){}
-    state.recognition = null;
+  if(state.mediaRecorder){
+    const mr = state.mediaRecorder;
+    const mimeType = mr.mimeType || "audio/webm";
+    mr.onstop = async () => {
+      try{
+        const blob = new Blob(state.audioChunks, { type: mimeType });
+        // Keep the original compressed recording (small, opus/webm ~ a few
+        // KB/sec) for playback/storage, separately from a WAV copy made
+        // just for the Gemini call (Gemini doesn't accept webm).
+        state.speakingPlaybackDataUrl = await blobToBase64(blob);
+        state.speakingPlaybackMime = mimeType;
+        const base64 = await audioBlobToWavBase64(blob);
+        state.speakingAudioBase64 = base64;
+        state.speakingAudioMime = "audio/wav";
+      }catch(e){
+        state.speakingAudioBase64 = null;
+        notify("녹음을 처리하지 못했어요. 다시 시도해 주세요.");
+      }
+      renderStudentSpeaking(document.getElementById("content"));
+    };
+    try{ mr.stop(); }catch(e){}
+    state.mediaRecorder = null;
+  }
+  if(state.mediaStream){
+    state.mediaStream.getTracks().forEach(t => t.stop());
+    state.mediaStream = null;
   }
   renderStudentSpeaking(document.getElementById("content"));
 }
 
-async function runSpeakingCheck(fromCorrected){
-  const sourceId = fromCorrected ? "speaking-corrected" : "speaking-text";
-  const text = (document.getElementById(sourceId).value || "").trim();
-  if(!text){ notify("먼저 녹음해 주세요."); return; }
-  if(fromCorrected) state.speakingCorrected = text; else state.speakingTranscript = text;
+async function runSpeakingCheck(){
   if(!state.sample){ notify("이 화면에서는 AI 첨삭을 사용할 수 없어요."); return; }
+  if(!state.speakingAudioBase64){ notify("녹음된 음성을 찾을 수 없어요. 다시 녹음해 주세요."); return; }
+  const storySub = myLatestStorySubmission();
+  const target = (storySub && storySub.shadowingText) || "";
   state.speakingBusy = true;
+  state.speakingError = null;
   renderStudentSpeaking(document.getElementById("content"));
-  const wrap = document.getElementById("speaking-feedback-wrap");
-  wrap.innerHTML = `<div class="thinking">AI 선생님이 듣고 있어요...</div>`;
-  const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 다정한 영어 선생님입니다.
-아래는 학생이 말한 영어를 음성 인식으로 받아쓴 문장입니다 (인식 오류가 조금 있을 수 있음을 감안해 주세요).
-문법적으로 어색하거나 틀린 부분을 찾아 첨삭해 주세요.
 
-규칙:
-- 원래 말, 고친 문장(틀린 곳이 없으면 "정확해요!"만 표시), 왜 그런지 초등학생이 이해하기 쉬운 한국어로 짧게 설명
-- 전문 문법 용어는 쉬운 말로 풀어서 설명
-- 발음보다는 문법과 표현에 집중
-- 마지막에 잘한 점을 짚어주는 격려 한마디 덧붙이기
-- 출력은 순수 텍스트로, 마크다운 기호 없이 자연스럽게 작성
+  const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 다정한 영어 발음 선생님입니다.
+첨부된 오디오는 학생이 영어 문장을 따라 말한(쉐도잉) 녹음입니다. 문장이 여러 개일 수 있습니다.
+${target ? `학생이 따라 말해야 했던 목표 문장: "${target}"` : "특별히 정해진 목표 문장은 없고, 자유롭게 말한 내용입니다."}
 
-학생이 말한 내용:
-${text}`;
+먼저 오디오에서 학생이 실제로 말한 내용을 최대한 정확하게 받아써 주세요.
+그 다음 문장 하나하나를 따로 나누어, 각 문장에서 발음/억양/리듬이 어색하거나 알아듣기 힘든 단어가 있는지 판단해 주세요. 문법이 아니라 "소리"에 집중하세요.
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
+{
+  "transcript": "오디오에서 받아쓴 학생의 실제 발화 내용 전체",
+  "overall": "전반적인 발음에 대한 한 줄 평가 (한국어, 초등학생이 이해하기 쉽게)",
+  "sentences": [
+    {
+      "text": "학생이 말한 첫 번째 문장",
+      "words": [
+        {"word": "though", "ok": false, "note": "무엇이 왜 어색한지 아주 쉬운 한국어로 짧게 설명 (예: 이 부분은 'ㄷ' 소리가 아니라 혀를 살짝 깨무는 소리예요)"},
+        {"word": "school", "ok": true, "note": ""}
+      ]
+    },
+    {
+      "text": "학생이 말한 두 번째 문장 (있다면)",
+      "words": [ ... ]
+    }
+  ],
+  "encouragement": "잘한 점을 짚어주는 격려 한마디 (한국어)"
+}
+"우리 5학년 친구", "OO학년 친구"처럼 학생을 부르는 말은 쓰지 말고, 학년/나이 언급 없이 바로 설명하세요. 학생이 문장을 하나만 말했으면 sentences 배열에 문장 하나만 넣으세요. 각 문장의 words 배열에는 그 문장의 주요 단어들을 순서대로 넣고, 발음이 괜찮으면 ok:true, 어색하면 ok:false로 표시하세요.`;
+
   try{
-    const res = await state.sample(prompt, {
-      onText: ({text: t}) => {
-        state.speakingFeedback = t;
-        const fbEl = document.getElementById("speaking-fb-text");
-        if(fbEl) fbEl.textContent = t;
-        else wrap.innerHTML = `<div class="feedback-box" id="speaking-fb-text">${esc(t)}</div>`;
-      }
-    });
+    const res = await state.sample(prompt, { audio: { base64: state.speakingAudioBase64, mimeType: state.speakingAudioMime } });
     state.speakingFeedback = res.text;
-    if(!fromCorrected) state.speakingCorrected = text;
+    const parsed = extractJsonLoose(res.text);
+    state.speakingTranscript = (parsed && parsed.transcript) || "";
   }catch(e){
-    wrap.innerHTML = `<div class="thinking">첨삭을 가져오지 못했어요. 다시 시도해 주세요.</div>`;
+    state.speakingFeedback = "";
+    state.speakingError = (e && e.message) ? e.message : String(e);
   }
   state.speakingBusy = false;
   renderStudentSpeaking(document.getElementById("content"));
 }
 
 async function submitSpeaking(){
-  const original = state.speakingTranscript || "";
-  const corrected = state.speakingCorrected != null ? state.speakingCorrected : original;
+  const transcript = state.speakingTranscript || "";
   const hw = myLatestHomework();
   const cls = myClass();
   const btn = document.getElementById("speaking-submit");
   btn.disabled = true; btn.textContent = "제출 중...";
+  const storySub = myLatestStorySubmission();
+  // Firestore documents cap out at 1 MiB; keep a safe margin for the other fields.
+  const audioOk = state.speakingPlaybackDataUrl && state.speakingPlaybackDataUrl.length < 600000;
   try{
     await state.db.collection("submissions").add({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
-      type: "speaking", text: corrected, originalText: original, feedback: state.speakingFeedback, createdAt: Date.now()
+      type: "speaking", text: transcript, targetText: (storySub && storySub.shadowingText) || null,
+      feedback: state.speakingFeedback,
+      audioDataUrl: audioOk ? state.speakingPlaybackDataUrl : null,
+      createdAt: Date.now()
     });
-    state.speakingTranscript = ""; state.speakingCorrected = null; state.speakingFeedback = null;
-    notify("제출 완료! 선생님이 확인하실 수 있어요.");
+    state.speakingTranscript = ""; state.speakingFeedback = null; state.speakingError = null;
+    state.speakingAudioBase64 = null; state.speakingAudioMime = null; state.speakingPlaybackDataUrl = null; state.speakingPlaybackMime = null;
+    if(storySub){
+      try{ await state.db.doc(`submissions/${storySub.id}`).update({shadowedAt: Date.now()}); }
+      catch(e){ notify("따라 말할 문장 정리에 실패했어요: " + ((e && e.message) || e)); }
+    }
+    notify(audioOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (녹음이 길어서 음성 없이 텍스트만 저장됐어요)");
   }catch(e){ notify("제출에 실패했습니다."); }
   renderStudentSpeaking(document.getElementById("content"));
+}
+
+// ---------- STUDENT: VOCA (word list + quiz) ----------
+async function loadVocaWords(){
+  try{
+    const snap = await state.db.doc(`vocab/${state.uid}`).get();
+    state.vocaWords = (snap.exists && snap.data().words) || [];
+  }catch(e){
+    state.vocaWords = [];
+  }
+  state.vocaWordsLoaded = true;
+  render();
+}
+
+async function saveVocaWords(){
+  try{
+    await state.db.doc(`vocab/${state.uid}`).set({ words: state.vocaWords, updatedAt: Date.now() });
+  }catch(e){
+    notify("단어 저장에 실패했습니다.");
+  }
+}
+
+function renderStudentVoca(content){
+  if(!state.vocaWordsLoaded){
+    content.innerHTML = `<div class="card"><div class="thinking">단어장을 불러오는 중...</div></div>`;
+    loadVocaWords();
+    return;
+  }
+
+  if(state.vocaTestActive){
+    renderVocaQuiz(content);
+    return;
+  }
+
+  content.innerHTML = `
+    <div class="card">
+      <h2>단어 추가<span class="sub">영어와 뜻을 입력해서 내 단어장을 만들어보세요</span></h2>
+      <div class="field">
+        <label>영어</label>
+        <input type="text" id="voca-en" placeholder="예: apple">
+      </div>
+      <div class="field">
+        <label>뜻</label>
+        <input type="text" id="voca-kr" placeholder="예: 사과">
+      </div>
+      <button class="btn" id="voca-add">추가하기</button>
+    </div>
+    <div class="card">
+      <h2>내 단어장<span class="sub">${state.vocaWords.length}개</span></h2>
+      <div id="voca-word-list"></div>
+      <div class="btn-row" style="margin-top:14px;">
+        ${state.vocaWords.length ? `<button class="btn" id="voca-start-test">테스트 시작</button>` : ""}
+        ${state.vocaWords.length ? `<button class="btn danger small" id="voca-clear-all">전체 삭제</button>` : ""}
+      </div>
+    </div>
+    ${state.vocaTestDone ? `<div id="voca-result-wrap"></div>` : ""}
+  `;
+
+  document.getElementById("voca-add").onclick = async () => {
+    const en = document.getElementById("voca-en").value.trim();
+    const kr = document.getElementById("voca-kr").value.trim();
+    if(!en || !kr){ notify("영어와 뜻을 모두 입력해주세요."); return; }
+    state.vocaWords.push({ english: en, meaning: kr });
+    await saveVocaWords();
+    renderStudentVoca(document.getElementById("content"));
+  };
+
+  const listEl = document.getElementById("voca-word-list");
+  if(!state.vocaWords.length){
+    listEl.innerHTML = `<div class="empty"><span class="big">📖</span>아직 등록한 단어가 없어요</div>`;
+  }else{
+    listEl.innerHTML = state.vocaWords.map((w, i) => `
+      <div class="word-row">
+        <span class="en">${esc(w.english)}</span>
+        <span class="kr">${esc(w.meaning)}</span>
+        <button class="btn ghost small" data-wdel="${i}">삭제</button>
+      </div>
+    `).join("");
+    listEl.querySelectorAll("[data-wdel]").forEach(b => b.onclick = async () => {
+      state.vocaWords.splice(Number(b.dataset.wdel), 1);
+      await saveVocaWords();
+      renderStudentVoca(document.getElementById("content"));
+    });
+  }
+
+  const startBtn = document.getElementById("voca-start-test");
+  if(startBtn) startBtn.onclick = startVocaTest;
+
+  const clearAllBtn = document.getElementById("voca-clear-all");
+  if(clearAllBtn) clearAllBtn.onclick = async () => {
+    if(!(await confirmDialog("단어장을 전부 삭제할까요? 되돌릴 수 없어요."))) return;
+    state.vocaWords = [];
+    await saveVocaWords();
+    renderStudentVoca(document.getElementById("content"));
+  };
+
+  if(state.vocaTestDone) renderVocaResult(document.getElementById("voca-result-wrap"));
+}
+
+function startVocaTest(){
+  const shuffled = [...state.vocaWords].sort(() => Math.random() - 0.5);
+  state.vocaTestQuestions = shuffled.map(w => ({
+    english: w.english,
+    meaning: w.meaning,
+    direction: Math.random() < 0.5 ? "e2m" : "m2e"
+  }));
+  state.vocaTestIndex = 0;
+  state.vocaTestAnswers = [];
+  state.vocaTestActive = true;
+  state.vocaTestDone = false;
+  renderStudentVoca(document.getElementById("content"));
+}
+
+function renderVocaQuiz(content){
+  const q = state.vocaTestQuestions[state.vocaTestIndex];
+  const isLast = state.vocaTestIndex === state.vocaTestQuestions.length - 1;
+  content.innerHTML = `
+    <div class="card">
+      <div class="quiz-progress">문제 ${state.vocaTestIndex + 1} / ${state.vocaTestQuestions.length}</div>
+      <div class="quiz-prompt">${esc(q.direction === "e2m" ? q.english : q.meaning)}</div>
+      <div class="quiz-hint">${q.direction === "e2m" ? "이 단어의 뜻을 입력하세요" : "이 뜻의 영어 단어를 입력하세요"}</div>
+      <div class="field">
+        <input type="text" id="quiz-answer" placeholder="정답 입력" autocomplete="off">
+      </div>
+      <button class="btn" id="quiz-next" style="width:100%;">${isLast ? "제출하고 결과 보기" : "다음"}</button>
+    </div>
+  `;
+  const input = document.getElementById("quiz-answer");
+  input.focus();
+  const submit = () => {
+    const userAnswer = input.value.trim();
+    const answer = q.direction === "e2m" ? q.meaning : q.english;
+    const correct = userAnswer.toLowerCase() === answer.toLowerCase();
+    state.vocaTestAnswers.push({
+      prompt: q.direction === "e2m" ? q.english : q.meaning,
+      direction: q.direction, answer, userAnswer, correct
+    });
+    if(isLast){
+      state.vocaTestActive = false;
+      state.vocaTestDone = true;
+    }else{
+      state.vocaTestIndex++;
+    }
+    renderStudentVoca(document.getElementById("content"));
+  };
+  document.getElementById("quiz-next").onclick = submit;
+  input.onkeydown = e => { if(e.key === "Enter") submit(); };
+}
+
+function renderVocaResult(wrap){
+  if(!wrap) return;
+  const answers = state.vocaTestAnswers;
+  const score = answers.filter(a => a.correct).length;
+  const total = answers.length;
+  const details = answers.map(a => `
+    <div class="fb-item ${a.correct ? "correct" : ""}">
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:2px;">${a.direction === "e2m" ? "English → 뜻" : "뜻 → English"}</div>
+      <div class="fb-original">${esc(a.prompt)}</div>
+      <div class="fb-explain">내 답: ${esc(a.userAnswer || "(빈칸)")} ${a.correct ? "✅" : `❌ (정답: ${esc(a.answer)})`}</div>
+    </div>
+  `).join("");
+  wrap.innerHTML = `
+    <div class="card">
+      <h2>테스트 결과</h2>
+      <div style="font-size:26px;font-weight:800;color:var(--pine);margin:6px 0 14px;">${score} / ${total} 점</div>
+      <div class="fb-wrap">${details}</div>
+      <div class="btn-row" style="margin-top:16px;">
+        <button class="btn" id="voca-submit" ${state.vocaTestSaving?"disabled":""}>${state.vocaTestSaving?"제출 중...":"선생님께 제출하기"}</button>
+        <button class="btn secondary" id="voca-retry">다시 테스트</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("voca-retry").onclick = () => {
+    state.vocaTestDone = false;
+    state.vocaTestAnswers = [];
+    renderStudentVoca(document.getElementById("content"));
+  };
+  document.getElementById("voca-submit").onclick = submitVocaTest;
+}
+
+async function submitVocaTest(){
+  const cls = myClass();
+  const hw = myLatestHomework();
+  const answers = state.vocaTestAnswers;
+  const score = answers.filter(a => a.correct).length;
+  const total = answers.length;
+  state.vocaTestSaving = true;
+  renderVocaResult(document.getElementById("voca-result-wrap"));
+  try{
+    await state.db.collection("submissions").add({
+      classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
+      type: "voca", score, total, details: answers, createdAt: Date.now()
+    });
+    notify("제출 완료! 선생님이 확인하실 수 있어요.");
+    state.vocaTestDone = false;
+    state.vocaTestAnswers = [];
+  }catch(e){ notify("제출에 실패했습니다."); }
+  state.vocaTestSaving = false;
+  renderStudentVoca(document.getElementById("content"));
+}
+
+// ---------- STUDENT: READING (upload a word-list photo, then read it aloud) ----------
+function renderStudentReading(content){
+  const supported = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder;
+  const target = (state.readingExtractedWords || []).join("\n");
+  content.innerHTML = `
+    <div class="card">
+      <h2>Reading 제출<span class="sub">단어 사진을 올리면, 그 단어들을 소리 내어 읽고 발음을 확인받아요</span></h2>
+
+      <div class="photo-upload" id="reading-photo-drop">
+        <label for="reading-photo-input" style="cursor:pointer;">
+          <span style="font-size:28px;display:block;margin-bottom:6px;">📷</span>
+          <span style="font-size:13.5px;color:var(--ink-soft);">단어가 적힌 사진을 올려주세요</span>
+        </label>
+        <input type="file" id="reading-photo-input" accept="image/*">
+        ${state.readingPhotoPreview ? `<img class="photo-preview" src="${state.readingPhotoPreview}">` : ""}
+      </div>
+      ${state.readingPhotoPreview && !state.readingExtractedWords.length ? `
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn" id="reading-extract" ${state.readingWordsBusy?"disabled":""}>${state.readingWordsBusy?"AI가 단어를 읽는 중...":"단어 인식하기"}</button>
+          <button class="btn secondary small" id="reading-photo-clear" type="button">사진 지우기</button>
+        </div>
+      ` : ""}
+      ${state.readingWordsError ? `<div class="thinking" style="margin-top:10px;">단어를 인식하지 못했어요. 다시 시도해 주세요.<br><span style="font-size:11px;opacity:.7;">${esc(state.readingWordsError)}</span></div>` : ""}
+
+      ${state.readingExtractedWords.length ? `
+        <div class="field" style="margin-top:16px;">
+          <label>읽을 단어들<span class="sub" style="display:inline;margin-left:6px;">사진에서 인식된 단어예요</span></label>
+          <div class="target-box">🗣️ 다음 단어들을 녹음해서 제출하세요.\n${esc(target)}</div>
+        </div>
+        <div class="btn-row" style="margin-bottom:14px;">
+          <button class="btn secondary small" id="reading-words-clear" type="button">단어 다시 인식하기</button>
+        </div>
+        ${!supported ? `<div class="empty"><span class="big">🎤</span>이 브라우저는 음성 녹음을 지원하지 않아요.<br>Chrome 브라우저를 이용해 주세요.</div>` : `
+          <div class="record-box">
+            <span class="rec-dot ${state.readingRecording?"live":""}"></span>
+            <span class="live-transcript" id="reading-live">${state.readingRecording ? "녹음 중이에요... 다 읽었으면 눌러서 멈추세요" : (state.readingAudioBase64 ? "녹음 완료! 아래에서 확인받아 보세요" : "녹음 버튼을 눌러 시작하세요")}</span>
+            <button class="btn ${state.readingRecording?"danger":""}" id="reading-rec-btn">${state.readingRecording?"녹음 중지":"녹음 시작"}</button>
+          </div>
+          ${state.readingAudioBase64 && !state.readingRecording ? `
+            <div class="btn-row" style="margin-top:14px;">
+              <button class="btn" id="reading-check" ${state.readingBusy?"disabled":""}>${state.readingBusy?"AI가 듣는 중...":"AI 발음 확인받기"}</button>
+              <button class="btn secondary small" id="reading-clear" type="button">지우고 다시 녹음</button>
+            </div>
+          ` : ""}
+          <div id="reading-feedback-wrap"></div>
+        `}
+      ` : ""}
+    </div>
+  `;
+
+  document.getElementById("reading-photo-input").onchange = onReadingPhotoSelected;
+  const photoClearBtn = document.getElementById("reading-photo-clear");
+  if(photoClearBtn) photoClearBtn.onclick = resetReadingPhoto;
+  const extractBtn = document.getElementById("reading-extract");
+  if(extractBtn) extractBtn.onclick = extractReadingWords;
+  const wordsClearBtn = document.getElementById("reading-words-clear");
+  if(wordsClearBtn) wordsClearBtn.onclick = resetReadingPhoto;
+
+  if(!state.readingExtractedWords.length || !supported) return;
+
+  document.getElementById("reading-rec-btn").onclick = state.readingRecording ? stopReadingRecording : startReadingRecording;
+  document.getElementById("reading-check") && (document.getElementById("reading-check").onclick = runReadingCheck);
+  const clearBtn = document.getElementById("reading-clear");
+  if(clearBtn) clearBtn.onclick = () => {
+    state.readingTranscript = ""; state.readingFeedback = null; state.readingError = null;
+    state.readingAudioBase64 = null; state.readingAudioMime = null; state.readingPlaybackDataUrl = null; state.readingPlaybackMime = null;
+    renderStudentReading(document.getElementById("content"));
+  };
+  const wrap = document.getElementById("reading-feedback-wrap");
+  if(wrap && state.readingBusy){
+    wrap.innerHTML = `<div class="thinking">AI 선생님이 발음을 듣고 있어요...</div>`;
+  }else if(wrap && state.readingError){
+    wrap.innerHTML = `<div class="thinking">확인하지 못했어요. 다시 시도해 주세요.<br><span style="font-size:11px;opacity:.7;">${esc(state.readingError)}</span></div>`;
+  }else if(wrap && state.readingFeedback){
+    wrap.innerHTML = `
+      ${state.readingTranscript ? `<div class="transcript-box">AI가 들은 내용: ${esc(state.readingTranscript)}</div>` : ""}
+      ${renderPronunciationBlock(state.readingFeedback)}
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn" id="reading-submit">선생님께 제출하기</button>
+      </div>
+    `;
+    document.getElementById("reading-submit").onclick = submitReadingPron;
+  }
+}
+
+async function onReadingPhotoSelected(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  try{
+    const { dataUrl, base64, mimeType } = await compressImageFile(file, 1100, 0.72);
+    state.readingPhotoPreview = dataUrl;
+    state.readingPhotoBase64 = base64;
+    state.readingPhotoMime = mimeType;
+    state.readingExtractedWords = [];
+    state.readingWordsError = null;
+  }catch(err){
+    notify("사진을 불러오지 못했어요. 다시 시도해 주세요.");
+  }
+  renderStudentReading(document.getElementById("content"));
+}
+
+function resetReadingPhoto(){
+  state.readingPhotoPreview = null; state.readingPhotoBase64 = null; state.readingPhotoMime = null;
+  state.readingExtractedWords = []; state.readingWordsError = null;
+  state.readingTranscript = ""; state.readingFeedback = null; state.readingError = null;
+  state.readingAudioBase64 = null; state.readingAudioMime = null; state.readingPlaybackDataUrl = null; state.readingPlaybackMime = null;
+  renderStudentReading(document.getElementById("content"));
+}
+
+async function extractReadingWords(){
+  if(!state.sample){ notify("이 화면에서는 AI 기능을 사용할 수 없어요."); return; }
+  if(!state.readingPhotoBase64){ notify("먼저 사진을 올려주세요."); return; }
+  state.readingWordsBusy = true;
+  state.readingWordsError = null;
+  renderStudentReading(document.getElementById("content"));
+
+  const prompt = `첨부된 사진에는 학생이 소리 내어 읽을 영어가 적혀 있습니다. 단어일 수도, 문장일 수도 있습니다.
+사진에 적힌 영어를 한 줄(항목)씩 그대로 읽어서 목록으로 만들어주세요 — 단어면 단어 하나가 한 항목, 문장이면 문장 하나가 한 항목이 되도록, 사진에 적힌 그대로 옮기세요. 뜻이나 번역이 같이 있어도 영어 부분만 뽑으세요.
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
+{
+  "words": ["apple", "banana"]
+}
+(단어 목록 사진의 예시입니다. 문장이 적힌 사진이면 각 문장을 그대로 한 항목씩 넣으세요.)
+글씨를 알아보기 어려운 부분이 있으면 최선으로 추측해서 읽으세요.`;
+
+  try{
+    const res = await state.sample(prompt, { image: { base64: state.readingPhotoBase64, mimeType: state.readingPhotoMime } });
+    const parsed = extractJsonLoose(res.text);
+    const words = (parsed && Array.isArray(parsed.words)) ? parsed.words.filter(Boolean) : [];
+    if(!words.length){ state.readingWordsError = "사진에서 단어를 찾지 못했어요."; }
+    state.readingExtractedWords = words;
+  }catch(e){
+    state.readingWordsError = (e && e.message) ? e.message : String(e);
+  }
+  state.readingWordsBusy = false;
+  renderStudentReading(document.getElementById("content"));
+}
+
+function startReadingRecording(){
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    state.mediaStream = stream;
+    state.audioChunks = [];
+    let mr;
+    try{ mr = new MediaRecorder(stream); }catch(e){ mr = null; }
+    if(!mr){
+      stream.getTracks().forEach(t => t.stop());
+      notify("이 브라우저에서는 녹음을 지원하지 않아요.");
+      return;
+    }
+    mr.ondataavailable = (e) => { if(e.data && e.data.size) state.audioChunks.push(e.data); };
+    mr.start();
+    state.mediaRecorder = mr;
+    state.readingRecording = true;
+    state.readingTranscript = "";
+    state.readingFeedback = null;
+    state.readingAudioBase64 = null; state.readingAudioMime = null; state.readingPlaybackDataUrl = null; state.readingPlaybackMime = null;
+    renderStudentReading(document.getElementById("content"));
+  }).catch(() => {
+    notify("마이크 권한을 확인해 주세요.");
+  });
+}
+
+function stopReadingRecording(){
+  state.readingRecording = false;
+  if(state.mediaRecorder){
+    const mr = state.mediaRecorder;
+    const mimeType = mr.mimeType || "audio/webm";
+    mr.onstop = async () => {
+      try{
+        const blob = new Blob(state.audioChunks, { type: mimeType });
+        state.readingPlaybackDataUrl = await blobToBase64(blob);
+        state.readingPlaybackMime = mimeType;
+        const base64 = await audioBlobToWavBase64(blob);
+        state.readingAudioBase64 = base64;
+        state.readingAudioMime = "audio/wav";
+      }catch(e){
+        state.readingAudioBase64 = null;
+        notify("녹음을 처리하지 못했어요. 다시 시도해 주세요.");
+      }
+      renderStudentReading(document.getElementById("content"));
+    };
+    try{ mr.stop(); }catch(e){}
+    state.mediaRecorder = null;
+  }
+  if(state.mediaStream){
+    state.mediaStream.getTracks().forEach(t => t.stop());
+    state.mediaStream = null;
+  }
+  renderStudentReading(document.getElementById("content"));
+}
+
+async function runReadingCheck(){
+  if(!state.sample){ notify("이 화면에서는 AI 첨삭을 사용할 수 없어요."); return; }
+  if(!state.readingAudioBase64){ notify("녹음된 음성을 찾을 수 없어요. 다시 녹음해 주세요."); return; }
+  const target = (state.readingExtractedWords || []).join("\n");
+  state.readingBusy = true;
+  state.readingError = null;
+  renderStudentReading(document.getElementById("content"));
+
+  const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 다정한 영어 발음 선생님입니다.
+첨부된 오디오는 학생이 사진 속 영어(단어 또는 문장)를 하나씩 소리 내어 읽은 녹음입니다. 항목이 단어일 수도, 문장일 수도 있습니다.
+학생이 읽어야 했던 목록:
+${target || "(목록 없음)"}
+
+먼저 오디오에서 학생이 실제로 말한 내용을 항목별로 순서대로 받아써 주세요.
+그 다음 각 항목(단어 또는 문장) 안에서 발음/강세/리듬이 어색하거나 알아듣기 힘든 부분이 있는지 판단해 주세요. 철자나 뜻이 아니라 "소리"에 집중하세요.
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
+{
+  "transcript": "오디오에서 받아쓴 전체 내용",
+  "overall": "전반적인 발음에 대한 한 줄 평가 (한국어, 초등학생이 이해하기 쉽게)",
+  "sentences": [
+    {
+      "text": "학생이 읽은 첫 번째 항목 (단어 또는 문장)",
+      "words": [
+        {"word": "though", "ok": false, "note": "무엇이 왜 어색한지 아주 쉬운 한국어로 짧게 설명"},
+        {"word": "school", "ok": true, "note": ""}
+      ]
+    }
+  ],
+  "encouragement": "잘한 점을 짚어주는 격려 한마디 (한국어)"
+}
+항목이 단어 하나라면 그 항목의 words 배열에도 그 단어 하나만 넣으세요. 항목이 문장이라면 문장을 이루는 주요 단어들을 words 배열에 순서대로 넣으세요. "우리 5학년 친구"처럼 학생을 부르는 말은 쓰지 말고, 학년/나이 언급 없이 바로 설명하세요.`;
+
+  try{
+    const res = await state.sample(prompt, { audio: { base64: state.readingAudioBase64, mimeType: state.readingAudioMime } });
+    state.readingFeedback = res.text;
+    const parsed = extractJsonLoose(res.text);
+    state.readingTranscript = (parsed && parsed.transcript) || "";
+  }catch(e){
+    state.readingFeedback = "";
+    state.readingError = (e && e.message) ? e.message : String(e);
+  }
+  state.readingBusy = false;
+  renderStudentReading(document.getElementById("content"));
+}
+
+async function submitReadingPron(){
+  const transcript = state.readingTranscript || "";
+  const hw = myLatestHomework();
+  const cls = myClass();
+  const btn = document.getElementById("reading-submit");
+  btn.disabled = true; btn.textContent = "제출 중...";
+  const target = (state.readingExtractedWords || []).join("\n");
+  const audioOk = state.readingPlaybackDataUrl && state.readingPlaybackDataUrl.length < 500000;
+  const photoOk = !audioOk ? false : (state.readingPhotoPreview && state.readingPhotoPreview.length < 180000);
+  try{
+    await state.db.collection("submissions").add({
+      classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
+      type: "reading", text: transcript, targetText: target || null,
+      feedback: state.readingFeedback,
+      audioDataUrl: audioOk ? state.readingPlaybackDataUrl : null,
+      photoDataUrl: photoOk ? state.readingPhotoPreview : null,
+      createdAt: Date.now()
+    });
+    resetReadingPhoto();
+    notify(audioOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (녹음이 길어서 음성 없이 텍스트만 저장됐어요)");
+  }catch(e){ notify("제출에 실패했습니다."); }
+  renderStudentReading(document.getElementById("content"));
+}
+
+// ---------- STUDENT: GRAMMAR ----------
+function renderStudentGrammar(content){
+  const cls = myClass();
+  const sets = cls ? state.grammarSets.filter(g => g.classId === cls.id) : [];
+  const set = sets.length ? sets[0] : null; // already ordered desc by createdAt
+
+  if(!set){
+    content.innerHTML = `<div class="card"><div class="empty"><span class="big">✏️</span>아직 등록된 Grammar 문제가 없어요.</div></div>`;
+    return;
+  }
+
+  if(state.grammarResult){
+    const score = state.grammarResult.filter(d => d.correct).length;
+    content.innerHTML = `
+      <div class="card">
+        <h2>결과<span class="sub">${esc(set.title || "Grammar 문제")}</span></h2>
+        <div style="font-size:26px;font-weight:800;color:var(--pine);margin:6px 0 14px;">${score} / ${state.grammarResult.length} 점</div>
+        <div class="fb-wrap">
+          ${state.grammarResult.map(d => `
+            <div class="fb-item ${d.correct ? "correct" : ""}">
+              <div class="fb-original" style="text-decoration:none;">${esc(d.question)}</div>
+              <div class="fb-explain">
+                내 답: ${esc(d.selectedText != null ? d.selectedText : "(빈칸)")} ${d.correct ? "✅" : `❌ (정답: ${esc(d.correctText)})`}
+                ${d.explanation ? `<br>${esc(d.explanation)}` : ""}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+        <button class="btn" id="grammar-retry" style="margin-top:16px;">다른 문제로 다시 풀기</button>
+      </div>
+    `;
+    document.getElementById("grammar-retry").onclick = () => { state.grammarResult = null; state.grammarAnswers = {}; renderStudentGrammar(document.getElementById("content")); };
+    return;
+  }
+
+  content.innerHTML = `
+    <div class="card">
+      <h2>${esc(set.title || "Grammar 문제")}<span class="sub">문제 ${set.problems.length}개</span></h2>
+      ${set.problems.map((p, i) => `
+        <div class="field">
+          <label>문제 ${i+1}. ${esc(p.question)}</label>
+          <div class="roster" id="grammar-choices-${i}">
+            ${p.choices.map((c, ci) => `
+              <label><input type="radio" name="grammar-q-${i}" value="${ci}" ${state.grammarAnswers[i]===ci?"checked":""}> ${esc(c)}</label>
+            `).join("")}
+          </div>
+        </div>
+      `).join("")}
+      <button class="btn" id="grammar-submit" style="width:100%;margin-top:10px;" ${state.grammarSubmitting?"disabled":""}>${state.grammarSubmitting?"채점 중...":"제출하기"}</button>
+    </div>
+  `;
+  set.problems.forEach((p, i) => {
+    document.querySelectorAll(`input[name="grammar-q-${i}"]`).forEach(el => {
+      el.onchange = e => { state.grammarAnswers[i] = +e.target.value; };
+    });
+  });
+  document.getElementById("grammar-submit").onclick = () => submitGrammar(set);
+}
+
+async function submitGrammar(set){
+  const cls = myClass();
+  const details = set.problems.map((p, i) => {
+    const selectedIndex = state.grammarAnswers[i];
+    const correct = selectedIndex === p.answerIndex;
+    return {
+      question: p.question,
+      selectedIndex: selectedIndex != null ? selectedIndex : null,
+      selectedText: selectedIndex != null ? p.choices[selectedIndex] : null,
+      correctIndex: p.answerIndex,
+      correctText: p.choices[p.answerIndex],
+      explanation: p.explanation || "",
+      correct
+    };
+  });
+  const score = details.filter(d => d.correct).length;
+  state.grammarSubmitting = true;
+  renderStudentGrammar(document.getElementById("content"));
+  try{
+    await state.db.collection("submissions").add({
+      classId: cls ? cls.id : null, homeworkId: null, grammarSetId: set.id, studentId: state.uid,
+      type: "grammar", score, total: details.length, details, createdAt: Date.now()
+    });
+    state.grammarResult = details;
+    notify("제출 완료! 선생님이 확인하실 수 있어요.");
+  }catch(e){ notify("제출에 실패했습니다."); }
+  state.grammarSubmitting = false;
+  renderStudentGrammar(document.getElementById("content"));
 }
 
 // ---------- STUDENT: MINE ----------
@@ -1066,97 +2478,112 @@ function renderStudentMine(content){
     return `
       <div class="sub-item">
         <div class="sub-item-head">
-          <span class="type-badge ${s.type==='speaking'?'speaking':''}">${s.type==='speaking'?'Speaking':'Writing'}</span>
+          <span class="type-badge ${typeBadgeClass(s.type)}">${typeBadgeLabel(s.type)}</span>
           <span class="stime">${fmtTime(s.createdAt)}</span>
         </div>
         <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">${hw ? esc(hw.title) : ""}</div>
-        <div class="stext">${esc(s.text)}</div>
-        ${s.originalText && s.originalText !== s.text ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">원래 문장: ${esc(s.originalText)}</div>` : ""}
-        ${s.feedback ? `<div class="feedback-box">${esc(s.feedback)}</div>` : ""}
+        ${renderSubmissionBody(s)}
       </div>
     `;
   }).join("");
 }
 
 // ---------- INIT ----------
-async function init(){
-  if(!window.claude || !window.claude.use){
-    state.available = false;
-    state.availReason = "window.claude가 없습니다 (Claude 아티팩트 뷰어가 아닌 환경).";
-    render(); return;
-  }
-  try{
-    const [db, sample] = await Promise.all([
-      window.claude.use("db"), window.claude.use("sample")
-    ]);
-    state.db = db; state.sample = sample;
-    if(!db){
-      state.available = false;
-      state.availReason = "db 기능을 사용할 수 없습니다 (claude.use('db') → null). 이 Claude 계정/워크스페이스에서 아티팩트 저장 기능이 아직 켜지지 않았을 수 있어요.";
-      render(); return;
-    }
-
-    state.db.collection("users").onSnapshot(snap => {
-      const map = {};
-      snap.docs.forEach(d => map[d.id] = d.data());
-      state.users = map;
-      const savedUsername = localStorage.getItem(SESSION_KEY);
-      if(savedUsername && !state.uid){
-        if(map[savedUsername]){
-          state.uid = savedUsername;
-          state.role = map[savedUsername].role;
-          state.me = {name: map[savedUsername].name};
-          if(!state.view) state.view = state.role === "teacher" ? "teacher-classes" : "student-homework";
-        }else{
-          localStorage.removeItem(SESSION_KEY);
-        }
-      }
-      if(state.uid && map[state.uid]){
-        // keep locally-held role/name in sync with live doc
-        state.role = map[state.uid].role;
-        state.me = {name: map[state.uid].name};
-      }
-      state.ready = true;
-      render();
-    }, () => { state.ready = true; render(); });
-
-    state.db.collection("classes").onSnapshot(snap => {
-      state.classes = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      render();
-    });
-    state.db.collection("homework").orderBy("createdAt", "desc").onSnapshot(snap => {
-      state.homework = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      render();
-    });
-    state.db.collection("submissions").orderBy("createdAt", "desc").onSnapshot(snap => {
-      state.submissions = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      render();
-    });
-  }catch(e){
-    console.error(e);
-    state.available = false;
-    state.availReason = "초기화 중 오류: " + (e && e.message ? e.message : String(e));
-    render();
+function syncProfileFromUsers(){
+  if(state.uid && state.users[state.uid]){
+    state.role = state.users[state.uid].role;
+    state.me = {name: state.users[state.uid].name};
+    if(!state.view) state.view = state.role === "teacher" ? "teacher-classes" : "student-homework";
   }
 }
 
-// manifest for "add to home screen"
+let listenersStarted = false;
+let unsubscribeFns = [];
+const SUBMISSION_MAX_AGE_DAYS = 30;
+let cleanupDone = false;
+async function cleanupOldSubmissions(){
+  if(cleanupDone || state.role !== "teacher") return;
+  cleanupDone = true;
+  const cutoff = Date.now() - SUBMISSION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+  const old = state.submissions.filter(s => s.createdAt && s.createdAt < cutoff);
+  for(const s of old){
+    try{ await state.db.doc(`submissions/${s.id}`).delete(); }catch(e){}
+  }
+}
+
+function startFirestoreListeners(){
+  if(listenersStarted) return;
+  listenersStarted = true;
+  unsubscribeFns.push(state.db.collection("users").onSnapshot(snap => {
+    const map = {};
+    snap.docs.forEach(d => map[d.id] = d.data());
+    state.users = map;
+    state.usersLoaded = true;
+    syncProfileFromUsers();
+    render();
+  }));
+  unsubscribeFns.push(state.db.collection("classes").onSnapshot(snap => {
+    state.classes = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    render();
+  }));
+  unsubscribeFns.push(state.db.collection("homework").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.homework = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    render();
+  }));
+  unsubscribeFns.push(state.db.collection("submissions").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.submissions = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    render();
+    cleanupOldSubmissions();
+  }));
+  unsubscribeFns.push(state.db.collection("grammarSets").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.grammarSets = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    render();
+  }));
+}
+function stopFirestoreListeners(){
+  unsubscribeFns.forEach(fn => { try{ fn(); }catch(e){} });
+  unsubscribeFns = [];
+  listenersStarted = false;
+  cleanupDone = false;
+}
+
+async function init(){
+  if(NOT_CONFIGURED){ render(); return; }
+  state.db = makeDbShim();
+  onAuthStateChanged(fbAuth, (user) => {
+    state.uid = user ? user.uid : null;
+    if(!user){
+      stopFirestoreListeners();
+      state.role = null; state.me = null; state.view = null;
+      state.classes = []; state.homework = []; state.submissions = []; state.users = {};
+      state.vocaWords = []; state.vocaWordsLoaded = false;
+      state.vocaTestActive = false; state.vocaTestDone = false; state.vocaTestAnswers = [];
+      state.grammarSets = []; state.grammarDraftProblems = []; state.grammarAnswers = {}; state.grammarResult = null;
+      state.usersLoaded = false;
+    }
+    state.ready = true;
+    if(user) startFirestoreListeners();
+    render();
+  });
+}
+
+// apple-touch-icon (iOS home screen icon) — manifest.json (linked in <head>) handles Android
 try{
-  const manifest = {
-    name: "클래스노트 Homework", short_name: "클래스노트",
-    start_url: ".", display: "standalone", background_color: "#FBF8F1", theme_color: "#2F5D50",
-    icons: [{src: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192"><rect width="192" height="192" rx="40" fill="%232F5D50"/><text x="96" y="128" font-size="110" font-family="Georgia,serif" fill="%23FBF8F1" text-anchor="middle">C</text></svg>'), sizes: "192x192", type: "image/svg+xml"}]
-  };
-  const blob = new Blob([JSON.stringify(manifest)], {type: "application/manifest+json"});
-  const link = document.createElement("link");
-  link.rel = "manifest";
-  link.href = URL.createObjectURL(blob);
-  document.head.appendChild(link);
   const appleIcon = document.createElement("link");
   appleIcon.rel = "apple-touch-icon";
-  appleIcon.href = manifest.icons[0].src;
+  appleIcon.href = "icon-512.png";
   document.head.appendChild(appleIcon);
 }catch(e){}
+
+// service worker: registered only so Chrome's install-app criteria are met.
+// It intentionally does NOT cache anything — every request just passes
+// straight through to the network — so a new deploy is always what the
+// user gets next time they open the app, with no separate "app update" step.
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
 
 init();
 })();
