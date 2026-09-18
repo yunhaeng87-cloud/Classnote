@@ -240,6 +240,9 @@ input,textarea,select{font-family:inherit;font-size:14px;}
 .pron-note{font-size:12.5px;color:var(--ink-soft);margin:0 0 12px 2px;}
 .target-box{background:var(--paper-2);border-radius:10px;padding:14px 16px;border-left:3px solid var(--marigold);font-size:16px;font-weight:600;line-height:1.6;white-space:pre-wrap;}
 .word-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);}
+.sub-status{background:var(--paper-2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;}
+.sub-status .count{font-weight:700;color:var(--pine);}
+.sub-status .missing{color:var(--coral);margin-top:6px;font-size:12.5px;}
 .word-row:last-child{border-bottom:none;}
 .word-row .en{font-weight:700;flex:1;}
 .word-row .kr{color:var(--ink-soft);flex:1;}
@@ -917,7 +920,7 @@ function renderShell(){
   const isTeacher = state.role === "teacher";
   const tabs = isTeacher
     ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"]]
-    : [["student-homework","숙제"],["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-mine","내 제출물"]];
+    : [["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-homework","Grammar"],["student-mine","내 제출물"]];
   const validViews = isTeacher ? [...tabs.map(t => t[0]), "teacher-class-detail"] : tabs.map(t => t[0]);
   if(!state.view || !validViews.includes(state.view)) state.view = tabs[0][0];
   if(state.view === "teacher-class-detail" && !state.classes.some(c => c.id === state.selectedClassId)){
@@ -1102,7 +1105,7 @@ function renderTeacherClassDetail(content){
       </div>
       <div class="field">
         <label>주제 / 요청사항 (선택)</label>
-        <input type="text" id="grammar-topic" placeholder="예: 현재완료 시제 위주로" value="${esc(state.grammarTopic)}">
+        <input type="text" id="grammar-topic" placeholder="예: (To부정사용법) (중학교 1학년 수준) (5지선다형)으로 출제해줘" value="${esc(state.grammarTopic)}">
       </div>
       <button class="btn" id="grammar-generate" ${state.grammarGenBusy?"disabled":""}>${state.grammarGenBusy?"AI가 만드는 중...":"AI로 문제 생성"}</button>
       ${state.grammarGenError ? `<p style="color:var(--coral);font-size:12.5px;margin-top:10px;">${esc(state.grammarGenError)}</p>` : ""}
@@ -1133,6 +1136,7 @@ function renderTeacherClassDetail(content){
         <button class="tab-btn ${state.teacherSubFilter==='reading'?'active':''}" data-subfilter="reading">Reading</button>
         <button class="tab-btn ${state.teacherSubFilter==='grammar'?'active':''}" data-subfilter="grammar">Grammar</button>
       </div>
+      <div id="sub-status"></div>
       <div id="sub-list"></div>
     </div>
   `;
@@ -1232,6 +1236,20 @@ function renderTeacherClassDetail(content){
 
   // submissions
   const subList = state.submissions.filter(s => s.classId === cls.id && s.type === (state.teacherSubFilter || "writing"));
+  const statusEl = document.getElementById("sub-status");
+  const rosterIds = cls.studentIds || [];
+  const submittedIds = new Set(subList.map(s => s.studentId));
+  const missingNames = rosterIds.filter(id => !submittedIds.has(id)).map(nameOf);
+  if(!rosterIds.length){
+    statusEl.innerHTML = "";
+  }else{
+    statusEl.innerHTML = `
+      <div class="sub-status">
+        제출 현황: <span class="count">${rosterIds.filter(id => submittedIds.has(id)).length} / ${rosterIds.length}명</span> 제출함
+        ${missingNames.length ? `<div class="missing">미제출: ${missingNames.map(esc).join(", ")}</div>` : ""}
+      </div>
+    `;
+  }
   const subListEl = document.getElementById("sub-list");
   if(!subList.length){
     subListEl.innerHTML = `<div class="empty"><span class="big">📮</span>아직 제출된 과제가 없어요</div>`;
@@ -1377,6 +1395,7 @@ async function generateGrammarProblems(){
   const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 영어 선생님입니다.
 학생들이 풀 수 있는 객관식 영문법 문제 ${count}개를 만들어주세요.
 ${topic ? `문제 주제/요청사항: ${topic}` : "주제는 자유롭게, 초등 고학년 수준에서 자주 헷갈리는 문법 포인트 위주로 만들어주세요."}
+선택지 개수는 요청사항에 특별한 지정이 없으면 4개로 만들고, 요청사항에서 "5지선다"처럼 개수를 지정하면 그 개수에 맞춰 만드세요.
 
 반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
 {
@@ -1399,7 +1418,7 @@ answerIndex는 choices 배열에서 정답의 위치(0부터 시작)입니다. �
       state.grammarGenError = "문제를 만들지 못했어요. 다시 시도해 주세요.";
     }else{
       state.grammarDraftProblems = problems.map(p => ({
-        question: p.question, choices: p.choices.slice(0, 4),
+        question: p.question, choices: p.choices.slice(0, 6),
         answerIndex: Math.max(0, Math.min((p.choices.length||4)-1, p.answerIndex || 0)),
         explanation: p.explanation || ""
       }));
