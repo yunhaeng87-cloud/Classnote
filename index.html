@@ -916,8 +916,8 @@ async function logout(){
 function renderShell(){
   const isTeacher = state.role === "teacher";
   const tabs = isTeacher
-    ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"],["teacher-grammar","Grammar"]]
-    : [["student-homework","숙제"],["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-grammar","Grammar"],["student-mine","내 제출물"]];
+    ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"]]
+    : [["student-homework","숙제"],["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-mine","내 제출물"]];
   const validViews = isTeacher ? [...tabs.map(t => t[0]), "teacher-class-detail"] : tabs.map(t => t[0]);
   if(!state.view || !validViews.includes(state.view)) state.view = tabs[0][0];
   if(state.view === "teacher-class-detail" && !state.classes.some(c => c.id === state.selectedClassId)){
@@ -962,7 +962,6 @@ function renderShell(){
   if(isTeacher){
     if(state.view === "teacher-classes") renderTeacherClasses(content);
     else if(state.view === "teacher-class-detail") renderTeacherClassDetail(content);
-    else if(state.view === "teacher-grammar") renderTeacherGrammar(content);
     else renderTeacherStudents(content);
   }else{
     if(state.view === "student-homework") renderStudentHomework(content);
@@ -970,7 +969,6 @@ function renderShell(){
     else if(state.view === "student-speaking") renderStudentSpeaking(content);
     else if(state.view === "student-voca") renderStudentVoca(content);
     else if(state.view === "student-reading") renderStudentReading(content);
-    else if(state.view === "student-grammar") renderStudentGrammar(content);
     else renderStudentMine(content);
   }
 }
@@ -1080,8 +1078,7 @@ async function deleteClass(id){
 function renderTeacherClassDetail(content){
   const cls = state.classes.find(c => c.id === state.selectedClassId);
   if(!cls){ renderTeacherClasses(content); return; }
-  const editing = state.editingHomeworkId ? state.homework.find(h => h.id === state.editingHomeworkId) : null;
-  const hwList = state.homework.filter(h => h.classId === cls.id);
+  const grammarSets = state.grammarSets.filter(g => g.classId === cls.id);
 
   content.innerHTML = `
     <button class="btn ghost small" id="back-to-classes" style="margin-bottom:10px;">← 클래스 목록</button>
@@ -1098,23 +1095,33 @@ function renderTeacherClassDetail(content){
     </div>
 
     <div class="card">
-      <h2>${editing ? "숙제 수정" : "숙제 등록"}<span class="sub">${editing ? "내용을 고치고 저장하세요" : "이 클래스에 새 숙제를 등록하세요"}</span></h2>
+      <h2>Grammar 문제 출제<span class="sub">AI에게 문제를 요청하고, 검토한 뒤 학생에게 게시하세요</span></h2>
       <div class="field">
-        <label>제목</label>
-        <input type="text" id="hw-title" placeholder="예: Unit 3 - My Family" value="${editing ? esc(editing.title) : ""}">
+        <label>문제 개수</label>
+        <input type="text" inputmode="numeric" id="grammar-count" value="${state.grammarCount}">
       </div>
       <div class="field">
-        <label>내용</label>
-        <textarea id="hw-content" placeholder="숙제 내용을 입력하세요">${editing ? esc(editing.content) : ""}</textarea>
+        <label>주제 / 요청사항 (선택)</label>
+        <input type="text" id="grammar-topic" placeholder="예: 현재완료 시제 위주로" value="${esc(state.grammarTopic)}">
       </div>
-      <div class="btn-row">
-        <button class="btn" id="hw-submit">${editing ? "수정 완료" : "숙제 등록"}</button>
-        ${editing ? `<button class="btn secondary" id="hw-cancel-edit">취소</button>` : ""}
-      </div>
+      <button class="btn" id="grammar-generate" ${state.grammarGenBusy?"disabled":""}>${state.grammarGenBusy?"AI가 만드는 중...":"AI로 문제 생성"}</button>
+      ${state.grammarGenError ? `<p style="color:var(--coral);font-size:12.5px;margin-top:10px;">${esc(state.grammarGenError)}</p>` : ""}
     </div>
+
+    ${state.grammarDraftProblems.length ? `
+      <div class="card">
+        <h2>검토 및 수정<span class="sub">학생에게 보이기 전에 내용을 고칠 수 있어요</span></h2>
+        <div id="grammar-draft-list"></div>
+        <div class="btn-row" style="margin-top:14px;">
+          <button class="btn" id="grammar-publish">이 클래스에 게시하기</button>
+          <button class="btn secondary small" id="grammar-discard">취소</button>
+        </div>
+      </div>
+    ` : ""}
+
     <div class="card">
-      <h2>등록된 숙제<span class="sub">${hwList.length}개</span></h2>
-      <div id="hw-list"></div>
+      <h2>게시된 Grammar 세트<span class="sub">${grammarSets.length}개</span></h2>
+      <div id="grammar-set-list"></div>
     </div>
 
     <div class="card">
@@ -1168,33 +1175,58 @@ function renderTeacherClassDetail(content){
     });
   }
 
-  // homework form
-  document.getElementById("hw-submit").onclick = editing ? updateHomework : submitHomework;
-  if(editing) document.getElementById("hw-cancel-edit").onclick = () => { state.editingHomeworkId = null; renderTeacherClassDetail(document.getElementById("content")); };
+  // grammar problem creation
+  document.getElementById("grammar-count").oninput = e => { state.grammarCount = e.target.value; };
+  document.getElementById("grammar-topic").oninput = e => { state.grammarTopic = e.target.value; };
+  document.getElementById("grammar-generate").onclick = generateGrammarProblems;
 
-  const hwListEl = document.getElementById("hw-list");
-  if(!hwList.length){
-    hwListEl.innerHTML = `<div class="empty"><span class="big">📝</span>등록된 숙제가 없어요</div>`;
-  }else{
-    hwListEl.innerHTML = hwList.map(h => `
+  if(state.grammarDraftProblems.length){
+    const listEl = document.getElementById("grammar-draft-list");
+    listEl.innerHTML = state.grammarDraftProblems.map((p, i) => `
       <div class="hw-item">
-        <h3>${esc(h.title)}</h3>
-        <div class="meta">${fmtTime(h.createdAt)}</div>
-        <div class="content">${esc(h.content)}</div>
-        <div class="btn-row" style="margin-top:8px;">
-          <button class="btn secondary small" data-hwedit="${h.id}">편집</button>
-          <button class="btn danger small" data-hwdel="${h.id}">삭제</button>
+        <div class="field">
+          <label>문제 ${i+1}</label>
+          <textarea data-gfield="question" data-gidx="${i}">${esc(p.question)}</textarea>
         </div>
+        ${p.choices.map((c, ci) => `
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="radio" name="grammar-answer-${i}" data-gidx="${i}" data-gci="${ci}" ${p.answerIndex===ci?"checked":""} style="width:auto;">
+            <input type="text" data-gfield="choice" data-gidx="${i}" data-gci="${ci}" value="${esc(c)}" style="flex:1;">
+          </div>
+        `).join("")}
+        <div class="field">
+          <label>설명 (정답 이유)</label>
+          <textarea data-gfield="explanation" data-gidx="${i}">${esc(p.explanation || "")}</textarea>
+        </div>
+        <button class="btn danger small" data-gdel="${i}">이 문제 삭제</button>
       </div>
     `).join("");
-    hwListEl.querySelectorAll("[data-hwedit]").forEach(b => b.onclick = () => {
-      state.editingHomeworkId = b.dataset.hwedit;
+    listEl.querySelectorAll('[data-gfield="question"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].question = e.target.value; });
+    listEl.querySelectorAll('[data-gfield="explanation"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].explanation = e.target.value; });
+    listEl.querySelectorAll('[data-gfield="choice"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].choices[+e.target.dataset.gci] = e.target.value; });
+    listEl.querySelectorAll('input[type=radio]').forEach(el => el.onchange = e => { state.grammarDraftProblems[+e.target.dataset.gidx].answerIndex = +e.target.dataset.gci; });
+    listEl.querySelectorAll('[data-gdel]').forEach(el => el.onclick = () => {
+      state.grammarDraftProblems.splice(+el.dataset.gdel, 1);
       renderTeacherClassDetail(content);
-      content.scrollIntoView({behavior: "smooth", block: "start"});
     });
-    hwListEl.querySelectorAll("[data-hwdel]").forEach(b => b.onclick = async () => {
-      if(!(await confirmDialog("이 숙제를 삭제할까요?"))) return;
-      try{ await state.db.doc(`homework/${b.dataset.hwdel}`).delete(); }catch(e){}
+    document.getElementById("grammar-publish").onclick = publishGrammarSet;
+    document.getElementById("grammar-discard").onclick = () => { state.grammarDraftProblems = []; renderTeacherClassDetail(content); };
+  }
+
+  const setListEl = document.getElementById("grammar-set-list");
+  if(!grammarSets.length){
+    setListEl.innerHTML = `<div class="empty"><span class="big">✏️</span>아직 게시된 문제가 없어요</div>`;
+  }else{
+    setListEl.innerHTML = grammarSets.map(g => `
+      <div class="hw-item">
+        <h3>${esc(g.title || "Grammar 문제")}</h3>
+        <div class="meta">${fmtTime(g.createdAt)} · 문제 ${g.problems.length}개</div>
+        <button class="btn danger small" style="margin-top:8px;" data-gsetdel="${g.id}">삭제</button>
+      </div>
+    `).join("");
+    setListEl.querySelectorAll("[data-gsetdel]").forEach(b => b.onclick = async () => {
+      if(!(await confirmDialog("이 문제 세트를 삭제할까요?"))) return;
+      try{ await state.db.doc(`grammarSets/${b.dataset.gsetdel}`).delete(); }catch(e){ notify("삭제에 실패했습니다."); }
     });
   }
 
@@ -1279,34 +1311,6 @@ function renderSubmissionBody(s){
   `;
 }
 
-async function submitHomework(){
-  const title = document.getElementById("hw-title").value.trim();
-  const contentText = document.getElementById("hw-content").value.trim();
-  if(!title || !contentText){ notify("제목과 내용을 입력해주세요."); return; }
-  const btn = document.getElementById("hw-submit");
-  btn.disabled = true; btn.textContent = "등록 중...";
-  try{
-    await state.db.collection("homework").add({
-      classId: state.selectedClassId, title, content: contentText, createdAt: Date.now(), createdBy: state.uid
-    });
-  }catch(e){ notify("등록에 실패했습니다."); }
-  renderTeacherClassDetail(document.getElementById("content"));
-}
-
-async function updateHomework(){
-  const title = document.getElementById("hw-title").value.trim();
-  const contentText = document.getElementById("hw-content").value.trim();
-  if(!title || !contentText){ notify("제목과 내용을 입력해주세요."); return; }
-  const btn = document.getElementById("hw-submit");
-  btn.disabled = true; btn.textContent = "저장 중...";
-  try{
-    await state.db.doc(`homework/${state.editingHomeworkId}`).update({title, content: contentText});
-    state.editingHomeworkId = null;
-    notify("수정했어요.");
-  }catch(e){ notify("수정에 실패했습니다."); }
-  renderTeacherClassDetail(document.getElementById("content"));
-}
-
 function showPhotoLightbox(src){
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
@@ -1362,111 +1366,13 @@ async function deleteStudent(uid){
 }
 
 // ---------- TEACHER: GRAMMAR ----------
-function renderTeacherGrammar(content){
-  if(!state.grammarClassId && state.classes.length) state.grammarClassId = state.classes[0].id;
-  const sets = state.classes.length ? state.grammarSets.filter(g => g.classId === state.grammarClassId) : [];
-  content.innerHTML = `
-    <div class="card">
-      <h2>Grammar 문제 만들기<span class="sub">클래스를 고르고 AI에게 문제를 요청하세요</span></h2>
-      ${state.classes.length ? `
-        <div class="field">
-          <label>클래스</label>
-          <select id="grammar-class">${state.classes.map(c => `<option value="${c.id}" ${c.id===state.grammarClassId?"selected":""}>${esc(c.name)}</option>`).join("")}</select>
-        </div>
-        <div class="field">
-          <label>문제 개수</label>
-          <input type="text" inputmode="numeric" id="grammar-count" value="${state.grammarCount}">
-        </div>
-        <div class="field">
-          <label>주제 / 요청사항 (선택)</label>
-          <input type="text" id="grammar-topic" placeholder="예: 현재완료 시제 위주로" value="${esc(state.grammarTopic)}">
-        </div>
-        <button class="btn" id="grammar-generate" ${state.grammarGenBusy?"disabled":""}>${state.grammarGenBusy?"AI가 만드는 중...":"AI로 문제 생성"}</button>
-        ${state.grammarGenError ? `<p style="color:var(--coral);font-size:12.5px;margin-top:10px;">${esc(state.grammarGenError)}</p>` : ""}
-      ` : `<div class="empty"><span class="big">🗂️</span>먼저 클래스를 만들어 주세요</div>`}
-    </div>
-
-    ${state.grammarDraftProblems.length ? `
-      <div class="card">
-        <h2>검토 및 수정<span class="sub">학생에게 보이기 전에 내용을 고칠 수 있어요</span></h2>
-        <div id="grammar-draft-list"></div>
-        <div class="btn-row" style="margin-top:14px;">
-          <button class="btn" id="grammar-publish">이 클래스에 게시하기</button>
-          <button class="btn secondary small" id="grammar-discard">취소</button>
-        </div>
-      </div>
-    ` : ""}
-
-    <div class="card">
-      <h2>게시된 Grammar 세트<span class="sub">${sets.length}개</span></h2>
-      <div id="grammar-set-list"></div>
-    </div>
-  `;
-
-  if(!state.classes.length) return;
-  document.getElementById("grammar-class").onchange = e => { state.grammarClassId = e.target.value; renderTeacherGrammar(content); };
-  document.getElementById("grammar-count").oninput = e => { state.grammarCount = e.target.value; };
-  document.getElementById("grammar-topic").oninput = e => { state.grammarTopic = e.target.value; };
-  document.getElementById("grammar-generate").onclick = generateGrammarProblems;
-
-  if(state.grammarDraftProblems.length){
-    const listEl = document.getElementById("grammar-draft-list");
-    listEl.innerHTML = state.grammarDraftProblems.map((p, i) => `
-      <div class="hw-item">
-        <div class="field">
-          <label>문제 ${i+1}</label>
-          <textarea data-gfield="question" data-gidx="${i}">${esc(p.question)}</textarea>
-        </div>
-        ${p.choices.map((c, ci) => `
-          <div class="field" style="display:flex;align-items:center;gap:8px;">
-            <input type="radio" name="grammar-answer-${i}" data-gidx="${i}" data-gci="${ci}" ${p.answerIndex===ci?"checked":""} style="width:auto;">
-            <input type="text" data-gfield="choice" data-gidx="${i}" data-gci="${ci}" value="${esc(c)}" style="flex:1;">
-          </div>
-        `).join("")}
-        <div class="field">
-          <label>설명 (정답 이유)</label>
-          <textarea data-gfield="explanation" data-gidx="${i}">${esc(p.explanation || "")}</textarea>
-        </div>
-        <button class="btn danger small" data-gdel="${i}">이 문제 삭제</button>
-      </div>
-    `).join("");
-    listEl.querySelectorAll('[data-gfield="question"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].question = e.target.value; });
-    listEl.querySelectorAll('[data-gfield="explanation"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].explanation = e.target.value; });
-    listEl.querySelectorAll('[data-gfield="choice"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].choices[+e.target.dataset.gci] = e.target.value; });
-    listEl.querySelectorAll('input[type=radio]').forEach(el => el.onchange = e => { state.grammarDraftProblems[+e.target.dataset.gidx].answerIndex = +e.target.dataset.gci; });
-    listEl.querySelectorAll('[data-gdel]').forEach(el => el.onclick = () => {
-      state.grammarDraftProblems.splice(+el.dataset.gdel, 1);
-      renderTeacherGrammar(content);
-    });
-    document.getElementById("grammar-publish").onclick = publishGrammarSet;
-    document.getElementById("grammar-discard").onclick = () => { state.grammarDraftProblems = []; renderTeacherGrammar(content); };
-  }
-
-  const setListEl = document.getElementById("grammar-set-list");
-  if(!sets.length){
-    setListEl.innerHTML = `<div class="empty"><span class="big">✏️</span>아직 게시된 문제가 없어요</div>`;
-  }else{
-    setListEl.innerHTML = sets.map(g => `
-      <div class="hw-item">
-        <h3>${esc(g.title || "Grammar 문제")}</h3>
-        <div class="meta">${fmtTime(g.createdAt)} · 문제 ${g.problems.length}개</div>
-        <button class="btn danger small" style="margin-top:8px;" data-gsetdel="${g.id}">삭제</button>
-      </div>
-    `).join("");
-    setListEl.querySelectorAll("[data-gsetdel]").forEach(b => b.onclick = async () => {
-      if(!(await confirmDialog("이 문제 세트를 삭제할까요?"))) return;
-      try{ await state.db.doc(`grammarSets/${b.dataset.gsetdel}`).delete(); }catch(e){ notify("삭제에 실패했습니다."); }
-    });
-  }
-}
-
 async function generateGrammarProblems(){
   if(!state.sample){ notify("이 화면에서는 AI 기능을 사용할 수 없어요."); return; }
   const count = Math.max(1, Math.min(20, parseInt(state.grammarCount, 10) || 5));
   const topic = (state.grammarTopic || "").trim();
   state.grammarGenBusy = true;
   state.grammarGenError = null;
-  renderTeacherGrammar(document.getElementById("content"));
+  renderTeacherClassDetail(document.getElementById("content"));
 
   const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 영어 선생님입니다.
 학생들이 풀 수 있는 객관식 영문법 문제 ${count}개를 만들어주세요.
@@ -1502,7 +1408,7 @@ answerIndex는 choices 배열에서 정답의 위치(0부터 시작)입니다. �
     state.grammarGenError = (e && e.message) ? e.message : String(e);
   }
   state.grammarGenBusy = false;
-  renderTeacherGrammar(document.getElementById("content"));
+  renderTeacherClassDetail(document.getElementById("content"));
 }
 
 async function publishGrammarSet(){
@@ -1512,14 +1418,14 @@ async function publishGrammarSet(){
   btn.disabled = true; btn.textContent = "게시 중...";
   try{
     await state.db.collection("grammarSets").add({
-      classId: state.grammarClassId,
+      classId: state.selectedClassId,
       title: `Grammar 문제 - ${new Date().toLocaleDateString("ko-KR")}`,
       problems, createdAt: Date.now(), createdBy: state.uid
     });
     state.grammarDraftProblems = [];
     notify("게시했어요! 학생들이 볼 수 있어요.");
   }catch(e){ notify("게시에 실패했습니다."); }
-  renderTeacherGrammar(document.getElementById("content"));
+  renderTeacherClassDetail(document.getElementById("content"));
 }
 
 // ---------- STUDENT: HOMEWORK ----------
@@ -1544,30 +1450,6 @@ function myLatestStorySubmission(){
     if(forHw) return forHw;
   }
   return mine.length ? mine[0] : null;
-}
-
-function renderStudentHomework(content){
-  const cls = myClass();
-  if(!cls){
-    content.innerHTML = `<div class="card"><div class="empty"><span class="big">🙋</span>아직 배정된 클래스가 없어요.<br>선생님께 문의해 주세요.</div></div>`;
-    return;
-  }
-  const hw = myLatestHomework();
-  content.innerHTML = `
-    <div class="card">
-      <h2>${esc(cls.name)}<span class="sub">${esc(fmtSchedule(cls.schedule))}</span></h2>
-    </div>
-    <div class="card">
-      <h2>최신 숙제</h2>
-      ${hw ? `
-        <div class="hw-item">
-          <h3>${esc(hw.title)}</h3>
-          <div class="meta">${fmtTime(hw.createdAt)}</div>
-          <div class="content">${esc(hw.content)}</div>
-        </div>
-      ` : `<div class="empty"><span class="big">📭</span>아직 등록된 숙제가 없어요</div>`}
-    </div>
-  `;
 }
 
 // ---------- STUDENT: WRITING (Story) ----------
@@ -2370,14 +2252,21 @@ async function submitReadingPron(){
   renderStudentReading(document.getElementById("content"));
 }
 
-// ---------- STUDENT: GRAMMAR ----------
-function renderStudentGrammar(content){
+// ---------- STUDENT: HOMEWORK (= Grammar quiz issued by the teacher) ----------
+function renderStudentHomework(content){
   const cls = myClass();
-  const sets = cls ? state.grammarSets.filter(g => g.classId === cls.id) : [];
+  if(!cls){
+    content.innerHTML = `<div class="card"><div class="empty"><span class="big">🙋</span>아직 배정된 클래스가 없어요.<br>선생님께 문의해 주세요.</div></div>`;
+    return;
+  }
+  const sets = state.grammarSets.filter(g => g.classId === cls.id);
   const set = sets.length ? sets[0] : null; // already ordered desc by createdAt
 
   if(!set){
-    content.innerHTML = `<div class="card"><div class="empty"><span class="big">✏️</span>아직 등록된 Grammar 문제가 없어요.</div></div>`;
+    content.innerHTML = `
+      <div class="card"><h2>${esc(cls.name)}<span class="sub">${esc(fmtSchedule(cls.schedule))}</span></h2></div>
+      <div class="card"><div class="empty"><span class="big">📭</span>아직 등록된 숙제(Grammar 문제)가 없어요.</div></div>
+    `;
     return;
   }
 
@@ -2398,10 +2287,10 @@ function renderStudentGrammar(content){
             </div>
           `).join("")}
         </div>
-        <button class="btn" id="grammar-retry" style="margin-top:16px;">다른 문제로 다시 풀기</button>
+        <button class="btn" id="grammar-retry" style="margin-top:16px;">다시 풀기</button>
       </div>
     `;
-    document.getElementById("grammar-retry").onclick = () => { state.grammarResult = null; state.grammarAnswers = {}; renderStudentGrammar(document.getElementById("content")); };
+    document.getElementById("grammar-retry").onclick = () => { state.grammarResult = null; state.grammarAnswers = {}; renderStudentHomework(document.getElementById("content")); };
     return;
   }
 
@@ -2446,7 +2335,7 @@ async function submitGrammar(set){
   });
   const score = details.filter(d => d.correct).length;
   state.grammarSubmitting = true;
-  renderStudentGrammar(document.getElementById("content"));
+  renderStudentHomework(document.getElementById("content"));
   try{
     await state.db.collection("submissions").add({
       classId: cls ? cls.id : null, homeworkId: null, grammarSetId: set.id, studentId: state.uid,
@@ -2456,7 +2345,7 @@ async function submitGrammar(set){
     notify("제출 완료! 선생님이 확인하실 수 있어요.");
   }catch(e){ notify("제출에 실패했습니다."); }
   state.grammarSubmitting = false;
-  renderStudentGrammar(document.getElementById("content"));
+  renderStudentHomework(document.getElementById("content"));
 }
 
 // ---------- STUDENT: MINE ----------
