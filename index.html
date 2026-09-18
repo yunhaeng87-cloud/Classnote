@@ -501,7 +501,7 @@ const state = {
   uid: null, role: null, me: null,
   classes: [], homework: [], submissions: [], users: {}, grammarSets: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
-  selectedClassId: null, editingHomeworkId: null, teacherSubFilter: "writing",
+  selectedClassId: null, editingHomeworkId: null, teacherSubFilter: "writing", subsClassId: null,
   ready: false, available: true, usersLoaded: false,
   authMode: "login", authError: "", authBusy: false, authUsernameDraft: "",
   writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false,
@@ -568,6 +568,38 @@ function fmtTime(ts){
   if(!ts) return "";
   const d = new Date(ts);
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+// Given a class's weekly schedule ([{day:"화",start:"14:00",...}]), find the
+// most recent past class session and the next upcoming one, relative to now.
+// Used to define "this homework cycle" (since the last class, until the next).
+function getClassSessionsAround(schedule, now){
+  if(!schedule || !schedule.length) return {prev: null, next: null};
+  let prev = null, next = null;
+  const nowTime = now.getTime();
+  for(let weekOffset = -2; weekOffset <= 2; weekOffset++){
+    for(const slot of schedule){
+      const dayIdx = DAYS.indexOf(slot.day);
+      if(dayIdx < 0 || !slot.start) continue;
+      const base = new Date(now);
+      base.setHours(0,0,0,0);
+      const diffDays = dayIdx - base.getDay() + weekOffset * 7;
+      const sessionDate = new Date(base);
+      sessionDate.setDate(base.getDate() + diffDays);
+      const [sh, sm] = slot.start.split(":").map(Number);
+      sessionDate.setHours(sh || 0, sm || 0, 0, 0);
+      const t = sessionDate.getTime();
+      if(t <= nowTime){
+        if(!prev || t > prev.getTime()) prev = sessionDate;
+      }else{
+        if(!next || t < next.getTime()) next = sessionDate;
+      }
+    }
+  }
+  return {prev, next};
+}
+function fmtSessionDate(d){
+  if(!d) return "-";
+  return `${d.getMonth()+1}/${d.getDate()}(${DAYS[d.getDay()]}) ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
 }
 
 function nameOf(id){
@@ -919,7 +951,7 @@ async function logout(){
 function renderShell(){
   const isTeacher = state.role === "teacher";
   const tabs = isTeacher
-    ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"]]
+    ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"],["teacher-submissions","제출물 관리"]]
     : [["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-homework","Grammar"],["student-mine","내 제출물"]];
   const validViews = isTeacher ? [...tabs.map(t => t[0]), "teacher-class-detail"] : tabs.map(t => t[0]);
   if(!state.view || !validViews.includes(state.view)) state.view = tabs[0][0];
@@ -965,6 +997,7 @@ function renderShell(){
   if(isTeacher){
     if(state.view === "teacher-classes") renderTeacherClasses(content);
     else if(state.view === "teacher-class-detail") renderTeacherClassDetail(content);
+    else if(state.view === "teacher-submissions") renderTeacherSubmissionsHub(content);
     else renderTeacherStudents(content);
   }else{
     if(state.view === "student-homework") renderStudentHomework(content);
@@ -1126,26 +1159,9 @@ function renderTeacherClassDetail(content){
       <h2>게시된 Grammar 세트<span class="sub">${grammarSets.length}개</span></h2>
       <div id="grammar-set-list"></div>
     </div>
-
-    <div class="card">
-      <h2>제출물 확인</h2>
-      <div class="tabs" style="margin-bottom:14px;">
-        <button class="tab-btn ${state.teacherSubFilter==='writing'?'active':''}" data-subfilter="writing">Sentence</button>
-        <button class="tab-btn ${state.teacherSubFilter==='speaking'?'active':''}" data-subfilter="speaking">Shadowing</button>
-        <button class="tab-btn ${state.teacherSubFilter==='voca'?'active':''}" data-subfilter="voca">Voca</button>
-        <button class="tab-btn ${state.teacherSubFilter==='reading'?'active':''}" data-subfilter="reading">Reading</button>
-        <button class="tab-btn ${state.teacherSubFilter==='grammar'?'active':''}" data-subfilter="grammar">Grammar</button>
-      </div>
-      <div id="sub-status"></div>
-      <div id="sub-list"></div>
-    </div>
   `;
 
   document.getElementById("back-to-classes").onclick = () => { state.view = "teacher-classes"; render(); };
-  content.querySelectorAll("[data-subfilter]").forEach(b => b.onclick = () => {
-    state.teacherSubFilter = b.dataset.subfilter;
-    renderTeacherClassDetail(content);
-  });
 
   // roster
   const currentEl = document.getElementById("class-roster-current");
@@ -1233,28 +1249,78 @@ function renderTeacherClassDetail(content){
       try{ await state.db.doc(`grammarSets/${b.dataset.gsetdel}`).delete(); }catch(e){ notify("삭제에 실패했습니다."); }
     });
   }
+}
 
-  // submissions
-  const subList = state.submissions.filter(s => s.classId === cls.id && s.type === (state.teacherSubFilter || "writing"));
-  const statusEl = document.getElementById("sub-status");
+// ---------- TEACHER: SUBMISSIONS HUB ----------
+function renderTeacherSubmissionsHub(content){
+  if(!state.subsClassId && state.classes.length) state.subsClassId = state.classes[0].id;
+  const cls = state.classes.find(c => c.id === state.subsClassId);
+
+  content.innerHTML = `
+    <div class="card">
+      <h2>제출물 관리<span class="sub">클래스별로 누가 제출했는지 한눈에 확인하세요</span></h2>
+      ${state.classes.length ? `
+        <div class="field">
+          <label>클래스</label>
+          <select id="subs-class">${state.classes.map(c => `<option value="${c.id}" ${c.id===state.subsClassId?"selected":""}>${esc(c.name)}</option>`).join("")}</select>
+        </div>
+      ` : `<div class="empty"><span class="big">🗂️</span>먼저 클래스를 만들어 주세요</div>`}
+    </div>
+
+    ${cls ? `
+      <div class="card">
+        <div class="tabs" style="margin-bottom:14px;">
+          <button class="tab-btn ${state.teacherSubFilter==='writing'?'active':''}" data-subfilter="writing">Sentence</button>
+          <button class="tab-btn ${state.teacherSubFilter==='speaking'?'active':''}" data-subfilter="speaking">Shadowing</button>
+          <button class="tab-btn ${state.teacherSubFilter==='voca'?'active':''}" data-subfilter="voca">Voca</button>
+          <button class="tab-btn ${state.teacherSubFilter==='reading'?'active':''}" data-subfilter="reading">Reading</button>
+          <button class="tab-btn ${state.teacherSubFilter==='grammar'?'active':''}" data-subfilter="grammar">Grammar</button>
+        </div>
+        <div id="sub-status"></div>
+        <div id="sub-list"></div>
+      </div>
+    ` : ""}
+  `;
+
+  if(!state.classes.length) return;
+  document.getElementById("subs-class").onchange = e => { state.subsClassId = e.target.value; renderTeacherSubmissionsHub(content); };
+  if(!cls) return;
+  content.querySelectorAll("[data-subfilter]").forEach(b => b.onclick = () => {
+    state.teacherSubFilter = b.dataset.subfilter;
+    renderTeacherSubmissionsHub(content);
+  });
+
+  const type = state.teacherSubFilter || "writing";
+  const allTypeSubs = state.submissions.filter(s => s.classId === cls.id && s.type === type);
   const rosterIds = cls.studentIds || [];
-  const submittedIds = new Set(subList.map(s => s.studentId));
+
+  // "This cycle" = since the last class session (or the beginning, if none
+  // has happened yet), up to the next one — this is the homework window
+  // the teacher actually cares about for "who hasn't turned it in yet".
+  const {prev, next} = getClassSessionsAround(cls.schedule, new Date());
+  const windowStart = prev ? prev.getTime() : 0;
+  const cycleSubs = allTypeSubs.filter(s => s.createdAt >= windowStart);
+  const submittedIds = new Set(cycleSubs.map(s => s.studentId));
   const missingNames = rosterIds.filter(id => !submittedIds.has(id)).map(nameOf);
+
+  const statusEl = document.getElementById("sub-status");
   if(!rosterIds.length){
     statusEl.innerHTML = "";
   }else{
     statusEl.innerHTML = `
       <div class="sub-status">
+        ${prev || next ? `이번 주기: 지난 수업 ${fmtSessionDate(prev)} ~ 다음 수업 ${fmtSessionDate(next)}<br>` : ""}
         제출 현황: <span class="count">${rosterIds.filter(id => submittedIds.has(id)).length} / ${rosterIds.length}명</span> 제출함
         ${missingNames.length ? `<div class="missing">미제출: ${missingNames.map(esc).join(", ")}</div>` : ""}
       </div>
     `;
   }
+
   const subListEl = document.getElementById("sub-list");
-  if(!subList.length){
+  if(!allTypeSubs.length){
     subListEl.innerHTML = `<div class="empty"><span class="big">📮</span>아직 제출된 과제가 없어요</div>`;
   }else{
-    subListEl.innerHTML = subList.map(s => {
+    subListEl.innerHTML = allTypeSubs.map(s => {
       const hw = state.homework.find(h => h.id === s.homeworkId);
       return `
         <div class="sub-item">
