@@ -248,7 +248,8 @@ input,textarea,select{font-family:inherit;font-size:14px;}
 .sub-item-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
 .type-badge{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--pine);color:var(--paper);font-weight:600;}
 .type-badge.speaking{background:var(--coral);}
-.type-badge.reading{background:var(--marigold);color:var(--pine-deep);}
+.type-badge.voca{background:var(--marigold);color:var(--pine-deep);}
+.type-badge.reading{background:#5C8AA6;}
 .sub-item .stext{margin-top:8px;font-size:13.5px;white-space:pre-wrap;color:var(--ink-soft);}
 .sub-item .stime{font-size:11.5px;color:var(--ink-soft);}
 
@@ -330,9 +331,9 @@ const TEACHER_INVITE_CODE = "hagwon2026";
 const TERMS_TEXT = `클래스노트 이용약관 (요약)
 
 1. 이 앱은 학원 수업을 위한 숙제 관리 도구입니다.
-2. 학생이 제출한 글쓰기(Story), 음성(Shadowing), 단어 테스트(Reading) 결과는 담당 선생님이 확인할 수 있습니다.
+2. 학생이 제출한 글쓰기(Story), 음성(Shadowing), 단어 테스트(Voca), 단어 발음(Reading) 결과는 담당 선생님이 확인할 수 있습니다.
 3. 제출한 사진과 음성은 AI(Google Gemini)로 전송되어 첨삭에 사용되며, 원본은 서버에 저장되지 않습니다 (일부 소용량 사진/음성만 첨삭 결과와 함께 저장될 수 있습니다).
-4. 제출물(Story/Shadowing/Reading)은 등록 후 30일이 지나면 자동으로 삭제됩니다.
+4. 제출물(Story/Shadowing/Voca/Reading)은 등록 후 30일이 지나면 자동으로 삭제됩니다.
 5. 아이디, 이름, 숙제 제출 내용 등은 학원 수업 목적으로만 사용되며, 다른 목적으로 이용되지 않습니다.
 6. 서비스 이용 중 궁금한 점은 담당 선생님에게 문의해주세요.`;
 // ======================================
@@ -500,9 +501,12 @@ const state = {
   speakingTranscript: "", speakingRecording: false, speakingFeedback: null, speakingBusy: false, speakingError: null,
   speakingAudioBase64: null, speakingAudioMime: null,
   speakingPlaybackDataUrl: null, speakingPlaybackMime: null,
-  readingWords: [], readingWordsLoaded: false,
-  readingTestActive: false, readingTestQuestions: [], readingTestIndex: 0, readingTestAnswers: [],
-  readingTestDone: false, readingTestSaving: false,
+  readingRecording: false, readingAudioBase64: null, readingAudioMime: null,
+  readingPlaybackDataUrl: null, readingPlaybackMime: null,
+  readingBusy: false, readingError: null, readingFeedback: null, readingTranscript: "",
+  vocaWords: [], vocaWordsLoaded: false,
+  vocaTestActive: false, vocaTestQuestions: [], vocaTestIndex: 0, vocaTestAnswers: [],
+  vocaTestDone: false, vocaTestSaving: false,
   recognition: null, mediaRecorder: null, mediaStream: null, audioChunks: [],
   canInstall: true,
 };
@@ -903,7 +907,7 @@ function renderShell(){
   const isTeacher = state.role === "teacher";
   const tabs = isTeacher
     ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"]]
-    : [["student-homework","숙제"],["student-writing","Story"],["student-speaking","Shadowing"],["student-reading","Reading"],["student-mine","내 제출물"]];
+    : [["student-homework","숙제"],["student-writing","Story"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-mine","내 제출물"]];
   const validViews = isTeacher ? [...tabs.map(t => t[0]), "teacher-class-detail"] : tabs.map(t => t[0]);
   if(!state.view || !validViews.includes(state.view)) state.view = tabs[0][0];
   if(state.view === "teacher-class-detail" && !state.classes.some(c => c.id === state.selectedClassId)){
@@ -953,6 +957,7 @@ function renderShell(){
     if(state.view === "student-homework") renderStudentHomework(content);
     else if(state.view === "student-writing") renderStudentWriting(content);
     else if(state.view === "student-speaking") renderStudentSpeaking(content);
+    else if(state.view === "student-voca") renderStudentVoca(content);
     else if(state.view === "student-reading") renderStudentReading(content);
     else renderStudentMine(content);
   }
@@ -1105,6 +1110,7 @@ function renderTeacherClassDetail(content){
       <div class="tabs" style="margin-bottom:14px;">
         <button class="tab-btn ${state.teacherSubFilter==='writing'?'active':''}" data-subfilter="writing">Story</button>
         <button class="tab-btn ${state.teacherSubFilter==='speaking'?'active':''}" data-subfilter="speaking">Shadowing</button>
+        <button class="tab-btn ${state.teacherSubFilter==='voca'?'active':''}" data-subfilter="voca">Voca</button>
         <button class="tab-btn ${state.teacherSubFilter==='reading'?'active':''}" data-subfilter="reading">Reading</button>
       </div>
       <div id="sub-list"></div>
@@ -1211,16 +1217,18 @@ function renderTeacherClassDetail(content){
 
 function typeBadgeLabel(type){
   if(type === "speaking") return "Shadowing";
+  if(type === "voca") return "Voca";
   if(type === "reading") return "Reading";
   return "Story";
 }
 function typeBadgeClass(type){
   if(type === "speaking") return "speaking";
+  if(type === "voca") return "voca";
   if(type === "reading") return "reading";
   return "";
 }
 function renderSubmissionBody(s){
-  if(s.type === "reading"){
+  if(s.type === "voca"){
     const details = (s.details || []).map(d => `
       <div class="fb-item ${d.correct ? "correct" : ""}">
         <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:2px;">${d.direction === "e2m" ? "English → 뜻" : "뜻 → English"}</div>
@@ -1239,7 +1247,7 @@ function renderSubmissionBody(s){
     <div class="stext">${esc(s.text)}</div>
     ${s.originalText && s.originalText !== s.text ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">원래 문장: ${esc(s.originalText)}</div>` : ""}
     ${s.targetText ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">목표 문장: ${esc(s.targetText)}</div>` : ""}
-    ${s.feedback ? (s.type==='speaking' ? renderPronunciationBlock(s.feedback) : renderFeedbackBlock(s.feedback)) : ""}
+    ${s.feedback ? ((s.type==='speaking' || s.type==='reading') ? renderPronunciationBlock(s.feedback) : renderFeedbackBlock(s.feedback)) : ""}
   `;
 }
 
@@ -1712,35 +1720,35 @@ async function submitSpeaking(){
   renderStudentSpeaking(document.getElementById("content"));
 }
 
-// ---------- STUDENT: READING (vocab quiz) ----------
-async function loadReadingWords(){
+// ---------- STUDENT: VOCA (word list + quiz) ----------
+async function loadVocaWords(){
   try{
     const snap = await state.db.doc(`vocab/${state.uid}`).get();
-    state.readingWords = (snap.exists && snap.data().words) || [];
+    state.vocaWords = (snap.exists && snap.data().words) || [];
   }catch(e){
-    state.readingWords = [];
+    state.vocaWords = [];
   }
-  state.readingWordsLoaded = true;
-  renderStudentReading(document.getElementById("content"));
+  state.vocaWordsLoaded = true;
+  render();
 }
 
-async function saveReadingWords(){
+async function saveVocaWords(){
   try{
-    await state.db.doc(`vocab/${state.uid}`).set({ words: state.readingWords, updatedAt: Date.now() });
+    await state.db.doc(`vocab/${state.uid}`).set({ words: state.vocaWords, updatedAt: Date.now() });
   }catch(e){
     notify("단어 저장에 실패했습니다.");
   }
 }
 
-function renderStudentReading(content){
-  if(!state.readingWordsLoaded){
+function renderStudentVoca(content){
+  if(!state.vocaWordsLoaded){
     content.innerHTML = `<div class="card"><div class="thinking">단어장을 불러오는 중...</div></div>`;
-    loadReadingWords();
+    loadVocaWords();
     return;
   }
 
-  if(state.readingTestActive){
-    renderReadingQuiz(content);
+  if(state.vocaTestActive){
+    renderVocaQuiz(content);
     return;
   }
 
@@ -1749,39 +1757,39 @@ function renderStudentReading(content){
       <h2>단어 추가<span class="sub">영어와 뜻을 입력해서 내 단어장을 만들어보세요</span></h2>
       <div class="field">
         <label>영어</label>
-        <input type="text" id="reading-en" placeholder="예: apple">
+        <input type="text" id="voca-en" placeholder="예: apple">
       </div>
       <div class="field">
         <label>뜻</label>
-        <input type="text" id="reading-kr" placeholder="예: 사과">
+        <input type="text" id="voca-kr" placeholder="예: 사과">
       </div>
-      <button class="btn" id="reading-add">추가하기</button>
+      <button class="btn" id="voca-add">추가하기</button>
     </div>
     <div class="card">
-      <h2>내 단어장<span class="sub">${state.readingWords.length}개</span></h2>
-      <div id="reading-word-list"></div>
+      <h2>내 단어장<span class="sub">${state.vocaWords.length}개</span></h2>
+      <div id="voca-word-list"></div>
       <div class="btn-row" style="margin-top:14px;">
-        ${state.readingWords.length ? `<button class="btn" id="reading-start-test">테스트 시작</button>` : ""}
-        ${state.readingWords.length ? `<button class="btn danger small" id="reading-clear-all">전체 삭제</button>` : ""}
+        ${state.vocaWords.length ? `<button class="btn" id="voca-start-test">테스트 시작</button>` : ""}
+        ${state.vocaWords.length ? `<button class="btn danger small" id="voca-clear-all">전체 삭제</button>` : ""}
       </div>
     </div>
-    ${state.readingTestDone ? `<div id="reading-result-wrap"></div>` : ""}
+    ${state.vocaTestDone ? `<div id="voca-result-wrap"></div>` : ""}
   `;
 
-  document.getElementById("reading-add").onclick = async () => {
-    const en = document.getElementById("reading-en").value.trim();
-    const kr = document.getElementById("reading-kr").value.trim();
+  document.getElementById("voca-add").onclick = async () => {
+    const en = document.getElementById("voca-en").value.trim();
+    const kr = document.getElementById("voca-kr").value.trim();
     if(!en || !kr){ notify("영어와 뜻을 모두 입력해주세요."); return; }
-    state.readingWords.push({ english: en, meaning: kr });
-    await saveReadingWords();
-    renderStudentReading(document.getElementById("content"));
+    state.vocaWords.push({ english: en, meaning: kr });
+    await saveVocaWords();
+    renderStudentVoca(document.getElementById("content"));
   };
 
-  const listEl = document.getElementById("reading-word-list");
-  if(!state.readingWords.length){
+  const listEl = document.getElementById("voca-word-list");
+  if(!state.vocaWords.length){
     listEl.innerHTML = `<div class="empty"><span class="big">📖</span>아직 등록한 단어가 없어요</div>`;
   }else{
-    listEl.innerHTML = state.readingWords.map((w, i) => `
+    listEl.innerHTML = state.vocaWords.map((w, i) => `
       <div class="word-row">
         <span class="en">${esc(w.english)}</span>
         <span class="kr">${esc(w.meaning)}</span>
@@ -1789,46 +1797,46 @@ function renderStudentReading(content){
       </div>
     `).join("");
     listEl.querySelectorAll("[data-wdel]").forEach(b => b.onclick = async () => {
-      state.readingWords.splice(Number(b.dataset.wdel), 1);
-      await saveReadingWords();
-      renderStudentReading(document.getElementById("content"));
+      state.vocaWords.splice(Number(b.dataset.wdel), 1);
+      await saveVocaWords();
+      renderStudentVoca(document.getElementById("content"));
     });
   }
 
-  const startBtn = document.getElementById("reading-start-test");
-  if(startBtn) startBtn.onclick = startReadingTest;
+  const startBtn = document.getElementById("voca-start-test");
+  if(startBtn) startBtn.onclick = startVocaTest;
 
-  const clearAllBtn = document.getElementById("reading-clear-all");
+  const clearAllBtn = document.getElementById("voca-clear-all");
   if(clearAllBtn) clearAllBtn.onclick = async () => {
     if(!(await confirmDialog("단어장을 전부 삭제할까요? 되돌릴 수 없어요."))) return;
-    state.readingWords = [];
-    await saveReadingWords();
-    renderStudentReading(document.getElementById("content"));
+    state.vocaWords = [];
+    await saveVocaWords();
+    renderStudentVoca(document.getElementById("content"));
   };
 
-  if(state.readingTestDone) renderReadingResult(document.getElementById("reading-result-wrap"));
+  if(state.vocaTestDone) renderVocaResult(document.getElementById("voca-result-wrap"));
 }
 
-function startReadingTest(){
-  const shuffled = [...state.readingWords].sort(() => Math.random() - 0.5);
-  state.readingTestQuestions = shuffled.map(w => ({
+function startVocaTest(){
+  const shuffled = [...state.vocaWords].sort(() => Math.random() - 0.5);
+  state.vocaTestQuestions = shuffled.map(w => ({
     english: w.english,
     meaning: w.meaning,
     direction: Math.random() < 0.5 ? "e2m" : "m2e"
   }));
-  state.readingTestIndex = 0;
-  state.readingTestAnswers = [];
-  state.readingTestActive = true;
-  state.readingTestDone = false;
-  renderStudentReading(document.getElementById("content"));
+  state.vocaTestIndex = 0;
+  state.vocaTestAnswers = [];
+  state.vocaTestActive = true;
+  state.vocaTestDone = false;
+  renderStudentVoca(document.getElementById("content"));
 }
 
-function renderReadingQuiz(content){
-  const q = state.readingTestQuestions[state.readingTestIndex];
-  const isLast = state.readingTestIndex === state.readingTestQuestions.length - 1;
+function renderVocaQuiz(content){
+  const q = state.vocaTestQuestions[state.vocaTestIndex];
+  const isLast = state.vocaTestIndex === state.vocaTestQuestions.length - 1;
   content.innerHTML = `
     <div class="card">
-      <div class="quiz-progress">문제 ${state.readingTestIndex + 1} / ${state.readingTestQuestions.length}</div>
+      <div class="quiz-progress">문제 ${state.vocaTestIndex + 1} / ${state.vocaTestQuestions.length}</div>
       <div class="quiz-prompt">${esc(q.direction === "e2m" ? q.english : q.meaning)}</div>
       <div class="quiz-hint">${q.direction === "e2m" ? "이 단어의 뜻을 입력하세요" : "이 뜻의 영어 단어를 입력하세요"}</div>
       <div class="field">
@@ -1843,25 +1851,25 @@ function renderReadingQuiz(content){
     const userAnswer = input.value.trim();
     const answer = q.direction === "e2m" ? q.meaning : q.english;
     const correct = userAnswer.toLowerCase() === answer.toLowerCase();
-    state.readingTestAnswers.push({
+    state.vocaTestAnswers.push({
       prompt: q.direction === "e2m" ? q.english : q.meaning,
       direction: q.direction, answer, userAnswer, correct
     });
     if(isLast){
-      state.readingTestActive = false;
-      state.readingTestDone = true;
+      state.vocaTestActive = false;
+      state.vocaTestDone = true;
     }else{
-      state.readingTestIndex++;
+      state.vocaTestIndex++;
     }
-    renderStudentReading(document.getElementById("content"));
+    renderStudentVoca(document.getElementById("content"));
   };
   document.getElementById("quiz-next").onclick = submit;
   input.onkeydown = e => { if(e.key === "Enter") submit(); };
 }
 
-function renderReadingResult(wrap){
+function renderVocaResult(wrap){
   if(!wrap) return;
-  const answers = state.readingTestAnswers;
+  const answers = state.vocaTestAnswers;
   const score = answers.filter(a => a.correct).length;
   const total = answers.length;
   const details = answers.map(a => `
@@ -1877,37 +1885,214 @@ function renderReadingResult(wrap){
       <div style="font-size:26px;font-weight:800;color:var(--pine);margin:6px 0 14px;">${score} / ${total} 점</div>
       <div class="fb-wrap">${details}</div>
       <div class="btn-row" style="margin-top:16px;">
-        <button class="btn" id="reading-submit" ${state.readingTestSaving?"disabled":""}>${state.readingTestSaving?"제출 중...":"선생님께 제출하기"}</button>
-        <button class="btn secondary" id="reading-retry">다시 테스트</button>
+        <button class="btn" id="voca-submit" ${state.vocaTestSaving?"disabled":""}>${state.vocaTestSaving?"제출 중...":"선생님께 제출하기"}</button>
+        <button class="btn secondary" id="voca-retry">다시 테스트</button>
       </div>
     </div>
   `;
-  document.getElementById("reading-retry").onclick = () => {
-    state.readingTestDone = false;
-    state.readingTestAnswers = [];
-    renderStudentReading(document.getElementById("content"));
+  document.getElementById("voca-retry").onclick = () => {
+    state.vocaTestDone = false;
+    state.vocaTestAnswers = [];
+    renderStudentVoca(document.getElementById("content"));
   };
-  document.getElementById("reading-submit").onclick = submitReadingTest;
+  document.getElementById("voca-submit").onclick = submitVocaTest;
 }
 
-async function submitReadingTest(){
+async function submitVocaTest(){
   const cls = myClass();
   const hw = myLatestHomework();
-  const answers = state.readingTestAnswers;
+  const answers = state.vocaTestAnswers;
   const score = answers.filter(a => a.correct).length;
   const total = answers.length;
-  state.readingTestSaving = true;
-  renderReadingResult(document.getElementById("reading-result-wrap"));
+  state.vocaTestSaving = true;
+  renderVocaResult(document.getElementById("voca-result-wrap"));
   try{
     await state.db.collection("submissions").add({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
-      type: "reading", score, total, details: answers, createdAt: Date.now()
+      type: "voca", score, total, details: answers, createdAt: Date.now()
     });
     notify("제출 완료! 선생님이 확인하실 수 있어요.");
-    state.readingTestDone = false;
-    state.readingTestAnswers = [];
+    state.vocaTestDone = false;
+    state.vocaTestAnswers = [];
   }catch(e){ notify("제출에 실패했습니다."); }
-  state.readingTestSaving = false;
+  state.vocaTestSaving = false;
+  renderStudentVoca(document.getElementById("content"));
+}
+
+// ---------- STUDENT: READING (word pronunciation, from Voca list) ----------
+function renderStudentReading(content){
+  if(!state.vocaWordsLoaded){
+    content.innerHTML = `<div class="card"><div class="thinking">단어장을 불러오는 중...</div></div>`;
+    loadVocaWords();
+    return;
+  }
+  const supported = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder;
+  const words = state.vocaWords || [];
+  const target = words.map(w => w.english).join(", ");
+  content.innerHTML = `
+    <div class="card">
+      <h2>Reading 제출<span class="sub">내 단어장의 단어를 소리 내어 읽어보세요</span></h2>
+      ${!supported ? `<div class="empty"><span class="big">🎤</span>이 브라우저는 음성 녹음을 지원하지 않아요.<br>Chrome 브라우저를 이용해 주세요.</div>` : `
+        ${words.length ? `
+          <div class="field">
+            <label>읽을 단어들<span class="sub" style="display:inline;margin-left:6px;">Voca에 등록한 단어예요</span></label>
+            <div class="target-box">🗣️ ${esc(target)}</div>
+          </div>
+        ` : `<div class="empty" style="padding:16px;"><span class="big">📭</span>먼저 Voca 탭에서 단어를 등록해주세요.</div>`}
+        <div class="record-box">
+          <span class="rec-dot ${state.readingRecording?"live":""}"></span>
+          <span class="live-transcript" id="reading-live">${state.readingRecording ? "녹음 중이에요... 다 읽었으면 눌러서 멈추세요" : (state.readingAudioBase64 ? "녹음 완료! 아래에서 확인받아 보세요" : "녹음 버튼을 눌러 시작하세요")}</span>
+          <button class="btn ${state.readingRecording?"danger":""}" id="reading-rec-btn">${state.readingRecording?"녹음 중지":"녹음 시작"}</button>
+        </div>
+        ${state.readingAudioBase64 && !state.readingRecording ? `
+          <div class="btn-row" style="margin-top:14px;">
+            <button class="btn" id="reading-check" ${state.readingBusy?"disabled":""}>${state.readingBusy?"AI가 듣는 중...":"AI 발음 확인받기"}</button>
+            <button class="btn secondary small" id="reading-clear" type="button">지우고 다시 녹음</button>
+          </div>
+        ` : ""}
+        <div id="reading-feedback-wrap"></div>
+      `}
+    </div>
+  `;
+  if(!supported) return;
+  document.getElementById("reading-rec-btn").onclick = state.readingRecording ? stopReadingRecording : startReadingRecording;
+  document.getElementById("reading-check") && (document.getElementById("reading-check").onclick = runReadingCheck);
+  const clearBtn = document.getElementById("reading-clear");
+  if(clearBtn) clearBtn.onclick = () => {
+    state.readingTranscript = ""; state.readingFeedback = null; state.readingError = null;
+    state.readingAudioBase64 = null; state.readingAudioMime = null; state.readingPlaybackDataUrl = null; state.readingPlaybackMime = null;
+    renderStudentReading(document.getElementById("content"));
+  };
+  const wrap = document.getElementById("reading-feedback-wrap");
+  if(wrap && state.readingBusy){
+    wrap.innerHTML = `<div class="thinking">AI 선생님이 발음을 듣고 있어요...</div>`;
+  }else if(wrap && state.readingError){
+    wrap.innerHTML = `<div class="thinking">확인하지 못했어요. 다시 시도해 주세요.<br><span style="font-size:11px;opacity:.7;">${esc(state.readingError)}</span></div>`;
+  }else if(wrap && state.readingFeedback){
+    wrap.innerHTML = `
+      ${state.readingTranscript ? `<div class="transcript-box">AI가 들은 내용: ${esc(state.readingTranscript)}</div>` : ""}
+      ${renderPronunciationBlock(state.readingFeedback)}
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn" id="reading-submit">선생님께 제출하기</button>
+      </div>
+    `;
+    document.getElementById("reading-submit").onclick = submitReadingPron;
+  }
+}
+
+function startReadingRecording(){
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    state.mediaStream = stream;
+    state.audioChunks = [];
+    let mr;
+    try{ mr = new MediaRecorder(stream); }catch(e){ mr = null; }
+    if(!mr){
+      stream.getTracks().forEach(t => t.stop());
+      notify("이 브라우저에서는 녹음을 지원하지 않아요.");
+      return;
+    }
+    mr.ondataavailable = (e) => { if(e.data && e.data.size) state.audioChunks.push(e.data); };
+    mr.start();
+    state.mediaRecorder = mr;
+    state.readingRecording = true;
+    state.readingTranscript = "";
+    state.readingFeedback = null;
+    state.readingAudioBase64 = null; state.readingAudioMime = null; state.readingPlaybackDataUrl = null; state.readingPlaybackMime = null;
+    renderStudentReading(document.getElementById("content"));
+  }).catch(() => {
+    notify("마이크 권한을 확인해 주세요.");
+  });
+}
+
+function stopReadingRecording(){
+  state.readingRecording = false;
+  if(state.mediaRecorder){
+    const mr = state.mediaRecorder;
+    const mimeType = mr.mimeType || "audio/webm";
+    mr.onstop = async () => {
+      try{
+        const blob = new Blob(state.audioChunks, { type: mimeType });
+        state.readingPlaybackDataUrl = await blobToBase64(blob);
+        state.readingPlaybackMime = mimeType;
+        const base64 = await audioBlobToWavBase64(blob);
+        state.readingAudioBase64 = base64;
+        state.readingAudioMime = "audio/wav";
+      }catch(e){
+        state.readingAudioBase64 = null;
+        notify("녹음을 처리하지 못했어요. 다시 시도해 주세요.");
+      }
+      renderStudentReading(document.getElementById("content"));
+    };
+    try{ mr.stop(); }catch(e){}
+    state.mediaRecorder = null;
+  }
+  if(state.mediaStream){
+    state.mediaStream.getTracks().forEach(t => t.stop());
+    state.mediaStream = null;
+  }
+  renderStudentReading(document.getElementById("content"));
+}
+
+async function runReadingCheck(){
+  if(!state.sample){ notify("이 화면에서는 AI 첨삭을 사용할 수 없어요."); return; }
+  if(!state.readingAudioBase64){ notify("녹음된 음성을 찾을 수 없어요. 다시 녹음해 주세요."); return; }
+  const target = (state.vocaWords || []).map(w => w.english).join(", ");
+  state.readingBusy = true;
+  state.readingError = null;
+  renderStudentReading(document.getElementById("content"));
+
+  const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 다정한 영어 발음 선생님입니다.
+첨부된 오디오는 학생이 단어장에 있는 영어 단어들을 하나씩 소리 내어 읽은 녹음입니다.
+학생이 읽어야 했던 단어 목록: ${target || "(목록 없음)"}
+
+먼저 오디오에서 학생이 실제로 말한 단어들을 순서대로 받아써 주세요.
+그 다음 각 단어의 발음/강세가 어색하거나 알아듣기 힘든지 판단해 주세요. 철자나 뜻이 아니라 "소리"에 집중하세요.
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
+{
+  "transcript": "오디오에서 받아쓴 단어들 (쉼표로 구분)",
+  "overall": "전반적인 발음에 대한 한 줄 평가 (한국어, 초등학생이 이해하기 쉽게)",
+  "words": [
+    {"word": "though", "ok": false, "note": "무엇이 왜 어색한지 아주 쉬운 한국어로 짧게 설명"},
+    {"word": "school", "ok": true, "note": ""}
+  ],
+  "encouragement": "잘한 점을 짚어주는 격려 한마디 (한국어)"
+}
+"우리 5학년 친구"처럼 학생을 부르는 말은 쓰지 말고, 학년/나이 언급 없이 바로 설명하세요. words 배열에는 학생이 실제로 말한 단어를 순서대로 넣으세요.`;
+
+  try{
+    const res = await state.sample(prompt, { audio: { base64: state.readingAudioBase64, mimeType: state.readingAudioMime } });
+    state.readingFeedback = res.text;
+    const parsed = extractJsonLoose(res.text);
+    state.readingTranscript = (parsed && parsed.transcript) || "";
+  }catch(e){
+    state.readingFeedback = "";
+    state.readingError = (e && e.message) ? e.message : String(e);
+  }
+  state.readingBusy = false;
+  renderStudentReading(document.getElementById("content"));
+}
+
+async function submitReadingPron(){
+  const transcript = state.readingTranscript || "";
+  const hw = myLatestHomework();
+  const cls = myClass();
+  const btn = document.getElementById("reading-submit");
+  btn.disabled = true; btn.textContent = "제출 중...";
+  const target = (state.vocaWords || []).map(w => w.english).join(", ");
+  const audioOk = state.readingPlaybackDataUrl && state.readingPlaybackDataUrl.length < 600000;
+  try{
+    await state.db.collection("submissions").add({
+      classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
+      type: "reading", text: transcript, targetText: target || null,
+      feedback: state.readingFeedback,
+      audioDataUrl: audioOk ? state.readingPlaybackDataUrl : null,
+      createdAt: Date.now()
+    });
+    state.readingTranscript = ""; state.readingFeedback = null; state.readingError = null;
+    state.readingAudioBase64 = null; state.readingAudioMime = null; state.readingPlaybackDataUrl = null; state.readingPlaybackMime = null;
+    notify(audioOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (녹음이 길어서 음성 없이 텍스트만 저장됐어요)");
+  }catch(e){ notify("제출에 실패했습니다."); }
   renderStudentReading(document.getElementById("content"));
 }
 
@@ -2004,8 +2189,8 @@ async function init(){
       stopFirestoreListeners();
       state.role = null; state.me = null; state.view = null;
       state.classes = []; state.homework = []; state.submissions = []; state.users = {};
-      state.readingWords = []; state.readingWordsLoaded = false;
-      state.readingTestActive = false; state.readingTestDone = false; state.readingTestAnswers = [];
+      state.vocaWords = []; state.vocaWordsLoaded = false;
+      state.vocaTestActive = false; state.vocaTestDone = false; state.vocaTestAnswers = [];
       state.usersLoaded = false;
     }
     state.ready = true;
