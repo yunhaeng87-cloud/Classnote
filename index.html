@@ -50,6 +50,10 @@
         allow read: if isSignedIn();
         allow write: if isSignedIn() && request.auth.uid == uid;
       }
+      match /grammarSets/{id} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && myRole() == 'teacher';
+      }
     }
   }
 -->
@@ -250,6 +254,7 @@ input,textarea,select{font-family:inherit;font-size:14px;}
 .type-badge.speaking{background:var(--coral);}
 .type-badge.voca{background:var(--marigold);color:var(--pine-deep);}
 .type-badge.reading{background:#5C8AA6;}
+.type-badge.grammar{background:#8B6BAE;}
 .sub-item .stext{margin-top:8px;font-size:13.5px;white-space:pre-wrap;color:var(--ink-soft);}
 .sub-item .stime{font-size:11.5px;color:var(--ink-soft);}
 
@@ -331,9 +336,9 @@ const TEACHER_INVITE_CODE = "hagwon2026";
 const TERMS_TEXT = `클래스노트 이용약관 (요약)
 
 1. 이 앱은 학원 수업을 위한 숙제 관리 도구입니다.
-2. 학생이 제출한 글쓰기(Story), 음성(Shadowing), 단어 테스트(Voca), 단어 발음(Reading) 결과는 담당 선생님이 확인할 수 있습니다.
+2. 학생이 제출한 글쓰기(Sentence), 음성(Shadowing), 단어 테스트(Voca), 단어 발음(Reading), 문법 문제(Grammar) 결과는 담당 선생님이 확인할 수 있습니다.
 3. 제출한 사진과 음성은 AI(Google Gemini)로 전송되어 첨삭에 사용되며, 원본은 서버에 저장되지 않습니다 (일부 소용량 사진/음성만 첨삭 결과와 함께 저장될 수 있습니다).
-4. 제출물(Story/Shadowing/Voca/Reading)은 등록 후 30일이 지나면 자동으로 삭제됩니다.
+4. 제출물(Sentence/Shadowing/Voca/Reading/Grammar)은 등록 후 30일이 지나면 자동으로 삭제됩니다.
 5. 아이디, 이름, 숙제 제출 내용 등은 학원 수업 목적으로만 사용되며, 다른 목적으로 이용되지 않습니다.
 6. 서비스 이용 중 궁금한 점은 담당 선생님에게 문의해주세요.`;
 // ======================================
@@ -491,7 +496,7 @@ async function audioBlobToWavBase64(blob){
 const state = {
   db: null, sample: geminiSample,
   uid: null, role: null, me: null,
-  classes: [], homework: [], submissions: [], users: {},
+  classes: [], homework: [], submissions: [], users: {}, grammarSets: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
   selectedClassId: null, editingHomeworkId: null, teacherSubFilter: "writing",
   ready: false, available: true, usersLoaded: false,
@@ -504,6 +509,11 @@ const state = {
   readingRecording: false, readingAudioBase64: null, readingAudioMime: null,
   readingPlaybackDataUrl: null, readingPlaybackMime: null,
   readingBusy: false, readingError: null, readingFeedback: null, readingTranscript: "",
+  readingPhotoPreview: null, readingPhotoBase64: null, readingPhotoMime: null,
+  readingExtractedWords: [], readingWordsBusy: false, readingWordsError: null,
+  grammarClassId: null, grammarDraftProblems: [], grammarGenBusy: false, grammarGenError: null,
+  grammarCount: 5, grammarTopic: "",
+  grammarAnswers: {}, grammarSubmitting: false, grammarResult: null,
   vocaWords: [], vocaWordsLoaded: false,
   vocaTestActive: false, vocaTestQuestions: [], vocaTestIndex: 0, vocaTestAnswers: [],
   vocaTestDone: false, vocaTestSaving: false,
@@ -906,8 +916,8 @@ async function logout(){
 function renderShell(){
   const isTeacher = state.role === "teacher";
   const tabs = isTeacher
-    ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"]]
-    : [["student-homework","숙제"],["student-writing","Story"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-mine","내 제출물"]];
+    ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"],["teacher-grammar","Grammar"]]
+    : [["student-homework","숙제"],["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-grammar","Grammar"],["student-mine","내 제출물"]];
   const validViews = isTeacher ? [...tabs.map(t => t[0]), "teacher-class-detail"] : tabs.map(t => t[0]);
   if(!state.view || !validViews.includes(state.view)) state.view = tabs[0][0];
   if(state.view === "teacher-class-detail" && !state.classes.some(c => c.id === state.selectedClassId)){
@@ -952,6 +962,7 @@ function renderShell(){
   if(isTeacher){
     if(state.view === "teacher-classes") renderTeacherClasses(content);
     else if(state.view === "teacher-class-detail") renderTeacherClassDetail(content);
+    else if(state.view === "teacher-grammar") renderTeacherGrammar(content);
     else renderTeacherStudents(content);
   }else{
     if(state.view === "student-homework") renderStudentHomework(content);
@@ -959,6 +970,7 @@ function renderShell(){
     else if(state.view === "student-speaking") renderStudentSpeaking(content);
     else if(state.view === "student-voca") renderStudentVoca(content);
     else if(state.view === "student-reading") renderStudentReading(content);
+    else if(state.view === "student-grammar") renderStudentGrammar(content);
     else renderStudentMine(content);
   }
 }
@@ -1108,10 +1120,11 @@ function renderTeacherClassDetail(content){
     <div class="card">
       <h2>제출물 확인</h2>
       <div class="tabs" style="margin-bottom:14px;">
-        <button class="tab-btn ${state.teacherSubFilter==='writing'?'active':''}" data-subfilter="writing">Story</button>
+        <button class="tab-btn ${state.teacherSubFilter==='writing'?'active':''}" data-subfilter="writing">Sentence</button>
         <button class="tab-btn ${state.teacherSubFilter==='speaking'?'active':''}" data-subfilter="speaking">Shadowing</button>
         <button class="tab-btn ${state.teacherSubFilter==='voca'?'active':''}" data-subfilter="voca">Voca</button>
         <button class="tab-btn ${state.teacherSubFilter==='reading'?'active':''}" data-subfilter="reading">Reading</button>
+        <button class="tab-btn ${state.teacherSubFilter==='grammar'?'active':''}" data-subfilter="grammar">Grammar</button>
       </div>
       <div id="sub-list"></div>
     </div>
@@ -1219,23 +1232,38 @@ function typeBadgeLabel(type){
   if(type === "speaking") return "Shadowing";
   if(type === "voca") return "Voca";
   if(type === "reading") return "Reading";
-  return "Story";
+  if(type === "grammar") return "Grammar";
+  return "Sentence";
 }
 function typeBadgeClass(type){
   if(type === "speaking") return "speaking";
   if(type === "voca") return "voca";
   if(type === "reading") return "reading";
+  if(type === "grammar") return "grammar";
   return "";
 }
 function renderSubmissionBody(s){
-  if(s.type === "voca"){
-    const details = (s.details || []).map(d => `
-      <div class="fb-item ${d.correct ? "correct" : ""}">
-        <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:2px;">${d.direction === "e2m" ? "English → 뜻" : "뜻 → English"}</div>
-        <div class="fb-original">${esc(d.prompt)}</div>
-        <div class="fb-explain">내 답: ${esc(d.userAnswer || "(빈칸)")} ${d.correct ? "✅" : `❌ (정답: ${esc(d.answer)})`}</div>
-      </div>
-    `).join("");
+  if(s.type === "voca" || s.type === "grammar"){
+    const details = (s.details || []).map(d => {
+      if(s.type === "grammar"){
+        return `
+          <div class="fb-item ${d.correct ? "correct" : ""}">
+            <div class="fb-original" style="text-decoration:none;">${esc(d.question)}</div>
+            <div class="fb-explain">
+              내 답: ${esc(d.selectedText != null ? d.selectedText : "(빈칸)")} ${d.correct ? "✅" : `❌ (정답: ${esc(d.correctText)})`}
+              ${d.explanation ? `<br>${esc(d.explanation)}` : ""}
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="fb-item ${d.correct ? "correct" : ""}">
+          <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:2px;">${d.direction === "e2m" ? "English → 뜻" : "뜻 → English"}</div>
+          <div class="fb-original">${esc(d.prompt)}</div>
+          <div class="fb-explain">내 답: ${esc(d.userAnswer || "(빈칸)")} ${d.correct ? "✅" : `❌ (정답: ${esc(d.answer)})`}</div>
+        </div>
+      `;
+    }).join("");
     return `
       <div style="font-size:22px;font-weight:800;color:var(--pine);margin:6px 0 10px;">${s.score} / ${s.total} 점</div>
       <div class="fb-wrap">${details}</div>
@@ -1333,6 +1361,167 @@ async function deleteStudent(uid){
   renderTeacherStudents(document.getElementById("content"));
 }
 
+// ---------- TEACHER: GRAMMAR ----------
+function renderTeacherGrammar(content){
+  if(!state.grammarClassId && state.classes.length) state.grammarClassId = state.classes[0].id;
+  const sets = state.classes.length ? state.grammarSets.filter(g => g.classId === state.grammarClassId) : [];
+  content.innerHTML = `
+    <div class="card">
+      <h2>Grammar 문제 만들기<span class="sub">클래스를 고르고 AI에게 문제를 요청하세요</span></h2>
+      ${state.classes.length ? `
+        <div class="field">
+          <label>클래스</label>
+          <select id="grammar-class">${state.classes.map(c => `<option value="${c.id}" ${c.id===state.grammarClassId?"selected":""}>${esc(c.name)}</option>`).join("")}</select>
+        </div>
+        <div class="field">
+          <label>문제 개수</label>
+          <input type="text" inputmode="numeric" id="grammar-count" value="${state.grammarCount}">
+        </div>
+        <div class="field">
+          <label>주제 / 요청사항 (선택)</label>
+          <input type="text" id="grammar-topic" placeholder="예: 현재완료 시제 위주로" value="${esc(state.grammarTopic)}">
+        </div>
+        <button class="btn" id="grammar-generate" ${state.grammarGenBusy?"disabled":""}>${state.grammarGenBusy?"AI가 만드는 중...":"AI로 문제 생성"}</button>
+        ${state.grammarGenError ? `<p style="color:var(--coral);font-size:12.5px;margin-top:10px;">${esc(state.grammarGenError)}</p>` : ""}
+      ` : `<div class="empty"><span class="big">🗂️</span>먼저 클래스를 만들어 주세요</div>`}
+    </div>
+
+    ${state.grammarDraftProblems.length ? `
+      <div class="card">
+        <h2>검토 및 수정<span class="sub">학생에게 보이기 전에 내용을 고칠 수 있어요</span></h2>
+        <div id="grammar-draft-list"></div>
+        <div class="btn-row" style="margin-top:14px;">
+          <button class="btn" id="grammar-publish">이 클래스에 게시하기</button>
+          <button class="btn secondary small" id="grammar-discard">취소</button>
+        </div>
+      </div>
+    ` : ""}
+
+    <div class="card">
+      <h2>게시된 Grammar 세트<span class="sub">${sets.length}개</span></h2>
+      <div id="grammar-set-list"></div>
+    </div>
+  `;
+
+  if(!state.classes.length) return;
+  document.getElementById("grammar-class").onchange = e => { state.grammarClassId = e.target.value; renderTeacherGrammar(content); };
+  document.getElementById("grammar-count").oninput = e => { state.grammarCount = e.target.value; };
+  document.getElementById("grammar-topic").oninput = e => { state.grammarTopic = e.target.value; };
+  document.getElementById("grammar-generate").onclick = generateGrammarProblems;
+
+  if(state.grammarDraftProblems.length){
+    const listEl = document.getElementById("grammar-draft-list");
+    listEl.innerHTML = state.grammarDraftProblems.map((p, i) => `
+      <div class="hw-item">
+        <div class="field">
+          <label>문제 ${i+1}</label>
+          <textarea data-gfield="question" data-gidx="${i}">${esc(p.question)}</textarea>
+        </div>
+        ${p.choices.map((c, ci) => `
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="radio" name="grammar-answer-${i}" data-gidx="${i}" data-gci="${ci}" ${p.answerIndex===ci?"checked":""} style="width:auto;">
+            <input type="text" data-gfield="choice" data-gidx="${i}" data-gci="${ci}" value="${esc(c)}" style="flex:1;">
+          </div>
+        `).join("")}
+        <div class="field">
+          <label>설명 (정답 이유)</label>
+          <textarea data-gfield="explanation" data-gidx="${i}">${esc(p.explanation || "")}</textarea>
+        </div>
+        <button class="btn danger small" data-gdel="${i}">이 문제 삭제</button>
+      </div>
+    `).join("");
+    listEl.querySelectorAll('[data-gfield="question"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].question = e.target.value; });
+    listEl.querySelectorAll('[data-gfield="explanation"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].explanation = e.target.value; });
+    listEl.querySelectorAll('[data-gfield="choice"]').forEach(el => el.oninput = e => { state.grammarDraftProblems[+e.target.dataset.gidx].choices[+e.target.dataset.gci] = e.target.value; });
+    listEl.querySelectorAll('input[type=radio]').forEach(el => el.onchange = e => { state.grammarDraftProblems[+e.target.dataset.gidx].answerIndex = +e.target.dataset.gci; });
+    listEl.querySelectorAll('[data-gdel]').forEach(el => el.onclick = () => {
+      state.grammarDraftProblems.splice(+el.dataset.gdel, 1);
+      renderTeacherGrammar(content);
+    });
+    document.getElementById("grammar-publish").onclick = publishGrammarSet;
+    document.getElementById("grammar-discard").onclick = () => { state.grammarDraftProblems = []; renderTeacherGrammar(content); };
+  }
+
+  const setListEl = document.getElementById("grammar-set-list");
+  if(!sets.length){
+    setListEl.innerHTML = `<div class="empty"><span class="big">✏️</span>아직 게시된 문제가 없어요</div>`;
+  }else{
+    setListEl.innerHTML = sets.map(g => `
+      <div class="hw-item">
+        <h3>${esc(g.title || "Grammar 문제")}</h3>
+        <div class="meta">${fmtTime(g.createdAt)} · 문제 ${g.problems.length}개</div>
+        <button class="btn danger small" style="margin-top:8px;" data-gsetdel="${g.id}">삭제</button>
+      </div>
+    `).join("");
+    setListEl.querySelectorAll("[data-gsetdel]").forEach(b => b.onclick = async () => {
+      if(!(await confirmDialog("이 문제 세트를 삭제할까요?"))) return;
+      try{ await state.db.doc(`grammarSets/${b.dataset.gsetdel}`).delete(); }catch(e){ notify("삭제에 실패했습니다."); }
+    });
+  }
+}
+
+async function generateGrammarProblems(){
+  if(!state.sample){ notify("이 화면에서는 AI 기능을 사용할 수 없어요."); return; }
+  const count = Math.max(1, Math.min(20, parseInt(state.grammarCount, 10) || 5));
+  const topic = (state.grammarTopic || "").trim();
+  state.grammarGenBusy = true;
+  state.grammarGenError = null;
+  renderTeacherGrammar(document.getElementById("content"));
+
+  const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 영어 선생님입니다.
+학생들이 풀 수 있는 객관식 영문법 문제 ${count}개를 만들어주세요.
+${topic ? `문제 주제/요청사항: ${topic}` : "주제는 자유롭게, 초등 고학년 수준에서 자주 헷갈리는 문법 포인트 위주로 만들어주세요."}
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
+{
+  "problems": [
+    {
+      "question": "문제 문장 (빈칸은 ___로 표시하거나, '다음 중 올바른 문장은?' 형태 등)",
+      "choices": ["선택지1", "선택지2", "선택지3", "선택지4"],
+      "answerIndex": 0,
+      "explanation": "정답인 이유를 초등학생이 이해하기 쉬운 한국어로 짧게 설명"
+    }
+  ]
+}
+answerIndex는 choices 배열에서 정답의 위치(0부터 시작)입니다. 문제 수는 정확히 ${count}개로 만드세요.`;
+
+  try{
+    const res = await state.sample(prompt, {});
+    const parsed = extractJsonLoose(res.text);
+    const problems = (parsed && Array.isArray(parsed.problems)) ? parsed.problems.filter(p => p && p.question && Array.isArray(p.choices) && p.choices.length >= 2) : [];
+    if(!problems.length){
+      state.grammarGenError = "문제를 만들지 못했어요. 다시 시도해 주세요.";
+    }else{
+      state.grammarDraftProblems = problems.map(p => ({
+        question: p.question, choices: p.choices.slice(0, 4),
+        answerIndex: Math.max(0, Math.min((p.choices.length||4)-1, p.answerIndex || 0)),
+        explanation: p.explanation || ""
+      }));
+    }
+  }catch(e){
+    state.grammarGenError = (e && e.message) ? e.message : String(e);
+  }
+  state.grammarGenBusy = false;
+  renderTeacherGrammar(document.getElementById("content"));
+}
+
+async function publishGrammarSet(){
+  const problems = state.grammarDraftProblems.filter(p => p.question.trim() && p.choices.every(c => c.trim()));
+  if(!problems.length){ notify("문제 내용을 확인해주세요."); return; }
+  const btn = document.getElementById("grammar-publish");
+  btn.disabled = true; btn.textContent = "게시 중...";
+  try{
+    await state.db.collection("grammarSets").add({
+      classId: state.grammarClassId,
+      title: `Grammar 문제 - ${new Date().toLocaleDateString("ko-KR")}`,
+      problems, createdAt: Date.now(), createdBy: state.uid
+    });
+    state.grammarDraftProblems = [];
+    notify("게시했어요! 학생들이 볼 수 있어요.");
+  }catch(e){ notify("게시에 실패했습니다."); }
+  renderTeacherGrammar(document.getElementById("content"));
+}
+
 // ---------- STUDENT: HOMEWORK ----------
 function myClass(){
   return state.classes.find(c => (c.studentIds||[]).includes(state.uid));
@@ -1385,7 +1574,7 @@ function renderStudentHomework(content){
 function renderStudentWriting(content){
   content.innerHTML = `
     <div class="card">
-      <h2>Story 제출<span class="sub">손으로 쓴 작문 사진을 올리면 AI가 첨삭해줘요</span></h2>
+      <h2>Sentence 제출<span class="sub">손으로 쓴 작문 사진을 올리면 AI가 첨삭해줘요</span></h2>
       <div class="photo-upload" id="photo-drop">
         <label for="writing-photo-input" style="cursor:pointer;">
           <span style="font-size:28px;display:block;margin-bottom:6px;">📷</span>
@@ -1532,10 +1721,10 @@ function renderStudentSpeaking(content){
       ${!supported ? `<div class="empty"><span class="big">🎤</span>이 브라우저는 음성 녹음을 지원하지 않아요.<br>Chrome 브라우저를 이용해 주세요.</div>` : `
         ${target ? `
           <div class="field">
-            <label>따라 말할 문장<span class="sub" style="display:inline;margin-left:6px;">내가 제출한 Story를 교정한 문장이에요</span></label>
-            <div class="target-box">🗣️ ${esc(target)}</div>
+            <label>따라 말할 문장<span class="sub" style="display:inline;margin-left:6px;">내가 제출한 Sentence를 교정한 문장이에요</span></label>
+            <div class="target-box">🗣️ 다음 문장을 녹음해서 제출하세요.\n${esc(target)}</div>
           </div>
-        ` : `<div class="empty" style="padding:16px;"><span class="big">📭</span>먼저 Story를 제출해주세요.<br>제출한 문장을 교정해서 여기서 따라 말하게 돼요.</div>`}
+        ` : `<div class="empty" style="padding:16px;"><span class="big">📭</span>먼저 Sentence를 제출해주세요.<br>제출한 문장을 교정해서 여기서 따라 말하게 돼요.</div>`}
         <div class="record-box">
           <span class="rec-dot ${state.speakingRecording?"live":""}"></span>
           <span class="live-transcript" id="live-transcript">${state.speakingRecording ? "녹음 중이에요... 다 말했으면 눌러서 멈추세요" : (state.speakingAudioBase64 ? "녹음 완료! 아래에서 확인받아 보세요" : "녹음 버튼을 눌러 시작하세요")}</span>
@@ -1919,42 +2108,66 @@ async function submitVocaTest(){
   renderStudentVoca(document.getElementById("content"));
 }
 
-// ---------- STUDENT: READING (word pronunciation, from Voca list) ----------
+// ---------- STUDENT: READING (upload a word-list photo, then read it aloud) ----------
 function renderStudentReading(content){
-  if(!state.vocaWordsLoaded){
-    content.innerHTML = `<div class="card"><div class="thinking">단어장을 불러오는 중...</div></div>`;
-    loadVocaWords();
-    return;
-  }
   const supported = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder;
-  const words = state.vocaWords || [];
-  const target = words.map(w => w.english).join(", ");
+  const target = (state.readingExtractedWords || []).join("\n");
   content.innerHTML = `
     <div class="card">
-      <h2>Reading 제출<span class="sub">내 단어장의 단어를 소리 내어 읽어보세요</span></h2>
-      ${!supported ? `<div class="empty"><span class="big">🎤</span>이 브라우저는 음성 녹음을 지원하지 않아요.<br>Chrome 브라우저를 이용해 주세요.</div>` : `
-        ${words.length ? `
-          <div class="field">
-            <label>읽을 단어들<span class="sub" style="display:inline;margin-left:6px;">Voca에 등록한 단어예요</span></label>
-            <div class="target-box">🗣️ ${esc(target)}</div>
-          </div>
-        ` : `<div class="empty" style="padding:16px;"><span class="big">📭</span>먼저 Voca 탭에서 단어를 등록해주세요.</div>`}
-        <div class="record-box">
-          <span class="rec-dot ${state.readingRecording?"live":""}"></span>
-          <span class="live-transcript" id="reading-live">${state.readingRecording ? "녹음 중이에요... 다 읽었으면 눌러서 멈추세요" : (state.readingAudioBase64 ? "녹음 완료! 아래에서 확인받아 보세요" : "녹음 버튼을 눌러 시작하세요")}</span>
-          <button class="btn ${state.readingRecording?"danger":""}" id="reading-rec-btn">${state.readingRecording?"녹음 중지":"녹음 시작"}</button>
+      <h2>Reading 제출<span class="sub">단어 사진을 올리면, 그 단어들을 소리 내어 읽고 발음을 확인받아요</span></h2>
+
+      <div class="photo-upload" id="reading-photo-drop">
+        <label for="reading-photo-input" style="cursor:pointer;">
+          <span style="font-size:28px;display:block;margin-bottom:6px;">📷</span>
+          <span style="font-size:13.5px;color:var(--ink-soft);">단어가 적힌 사진을 올려주세요</span>
+        </label>
+        <input type="file" id="reading-photo-input" accept="image/*">
+        ${state.readingPhotoPreview ? `<img class="photo-preview" src="${state.readingPhotoPreview}">` : ""}
+      </div>
+      ${state.readingPhotoPreview && !state.readingExtractedWords.length ? `
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn" id="reading-extract" ${state.readingWordsBusy?"disabled":""}>${state.readingWordsBusy?"AI가 단어를 읽는 중...":"단어 인식하기"}</button>
+          <button class="btn secondary small" id="reading-photo-clear" type="button">사진 지우기</button>
         </div>
-        ${state.readingAudioBase64 && !state.readingRecording ? `
-          <div class="btn-row" style="margin-top:14px;">
-            <button class="btn" id="reading-check" ${state.readingBusy?"disabled":""}>${state.readingBusy?"AI가 듣는 중...":"AI 발음 확인받기"}</button>
-            <button class="btn secondary small" id="reading-clear" type="button">지우고 다시 녹음</button>
+      ` : ""}
+      ${state.readingWordsError ? `<div class="thinking" style="margin-top:10px;">단어를 인식하지 못했어요. 다시 시도해 주세요.<br><span style="font-size:11px;opacity:.7;">${esc(state.readingWordsError)}</span></div>` : ""}
+
+      ${state.readingExtractedWords.length ? `
+        <div class="field" style="margin-top:16px;">
+          <label>읽을 단어들<span class="sub" style="display:inline;margin-left:6px;">사진에서 인식된 단어예요</span></label>
+          <div class="target-box">🗣️ 다음 단어들을 녹음해서 제출하세요.\n${esc(target)}</div>
+        </div>
+        <div class="btn-row" style="margin-bottom:14px;">
+          <button class="btn secondary small" id="reading-words-clear" type="button">단어 다시 인식하기</button>
+        </div>
+        ${!supported ? `<div class="empty"><span class="big">🎤</span>이 브라우저는 음성 녹음을 지원하지 않아요.<br>Chrome 브라우저를 이용해 주세요.</div>` : `
+          <div class="record-box">
+            <span class="rec-dot ${state.readingRecording?"live":""}"></span>
+            <span class="live-transcript" id="reading-live">${state.readingRecording ? "녹음 중이에요... 다 읽었으면 눌러서 멈추세요" : (state.readingAudioBase64 ? "녹음 완료! 아래에서 확인받아 보세요" : "녹음 버튼을 눌러 시작하세요")}</span>
+            <button class="btn ${state.readingRecording?"danger":""}" id="reading-rec-btn">${state.readingRecording?"녹음 중지":"녹음 시작"}</button>
           </div>
-        ` : ""}
-        <div id="reading-feedback-wrap"></div>
-      `}
+          ${state.readingAudioBase64 && !state.readingRecording ? `
+            <div class="btn-row" style="margin-top:14px;">
+              <button class="btn" id="reading-check" ${state.readingBusy?"disabled":""}>${state.readingBusy?"AI가 듣는 중...":"AI 발음 확인받기"}</button>
+              <button class="btn secondary small" id="reading-clear" type="button">지우고 다시 녹음</button>
+            </div>
+          ` : ""}
+          <div id="reading-feedback-wrap"></div>
+        `}
+      ` : ""}
     </div>
   `;
-  if(!supported) return;
+
+  document.getElementById("reading-photo-input").onchange = onReadingPhotoSelected;
+  const photoClearBtn = document.getElementById("reading-photo-clear");
+  if(photoClearBtn) photoClearBtn.onclick = resetReadingPhoto;
+  const extractBtn = document.getElementById("reading-extract");
+  if(extractBtn) extractBtn.onclick = extractReadingWords;
+  const wordsClearBtn = document.getElementById("reading-words-clear");
+  if(wordsClearBtn) wordsClearBtn.onclick = resetReadingPhoto;
+
+  if(!state.readingExtractedWords.length || !supported) return;
+
   document.getElementById("reading-rec-btn").onclick = state.readingRecording ? stopReadingRecording : startReadingRecording;
   document.getElementById("reading-check") && (document.getElementById("reading-check").onclick = runReadingCheck);
   const clearBtn = document.getElementById("reading-clear");
@@ -1978,6 +2191,60 @@ function renderStudentReading(content){
     `;
     document.getElementById("reading-submit").onclick = submitReadingPron;
   }
+}
+
+async function onReadingPhotoSelected(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  try{
+    const { dataUrl, base64, mimeType } = await compressImageFile(file, 1100, 0.72);
+    state.readingPhotoPreview = dataUrl;
+    state.readingPhotoBase64 = base64;
+    state.readingPhotoMime = mimeType;
+    state.readingExtractedWords = [];
+    state.readingWordsError = null;
+  }catch(err){
+    notify("사진을 불러오지 못했어요. 다시 시도해 주세요.");
+  }
+  renderStudentReading(document.getElementById("content"));
+}
+
+function resetReadingPhoto(){
+  state.readingPhotoPreview = null; state.readingPhotoBase64 = null; state.readingPhotoMime = null;
+  state.readingExtractedWords = []; state.readingWordsError = null;
+  state.readingTranscript = ""; state.readingFeedback = null; state.readingError = null;
+  state.readingAudioBase64 = null; state.readingAudioMime = null; state.readingPlaybackDataUrl = null; state.readingPlaybackMime = null;
+  renderStudentReading(document.getElementById("content"));
+}
+
+async function extractReadingWords(){
+  if(!state.sample){ notify("이 화면에서는 AI 기능을 사용할 수 없어요."); return; }
+  if(!state.readingPhotoBase64){ notify("먼저 사진을 올려주세요."); return; }
+  state.readingWordsBusy = true;
+  state.readingWordsError = null;
+  renderStudentReading(document.getElementById("content"));
+
+  const prompt = `첨부된 사진에는 학생이 소리 내어 읽을 영어가 적혀 있습니다. 단어일 수도, 문장일 수도 있습니다.
+사진에 적힌 영어를 한 줄(항목)씩 그대로 읽어서 목록으로 만들어주세요 — 단어면 단어 하나가 한 항목, 문장이면 문장 하나가 한 항목이 되도록, 사진에 적힌 그대로 옮기세요. 뜻이나 번역이 같이 있어도 영어 부분만 뽑으세요.
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
+{
+  "words": ["apple", "banana"]
+}
+(단어 목록 사진의 예시입니다. 문장이 적힌 사진이면 각 문장을 그대로 한 항목씩 넣으세요.)
+글씨를 알아보기 어려운 부분이 있으면 최선으로 추측해서 읽으세요.`;
+
+  try{
+    const res = await state.sample(prompt, { image: { base64: state.readingPhotoBase64, mimeType: state.readingPhotoMime } });
+    const parsed = extractJsonLoose(res.text);
+    const words = (parsed && Array.isArray(parsed.words)) ? parsed.words.filter(Boolean) : [];
+    if(!words.length){ state.readingWordsError = "사진에서 단어를 찾지 못했어요."; }
+    state.readingExtractedWords = words;
+  }catch(e){
+    state.readingWordsError = (e && e.message) ? e.message : String(e);
+  }
+  state.readingWordsBusy = false;
+  renderStudentReading(document.getElementById("content"));
 }
 
 function startReadingRecording(){
@@ -2036,29 +2303,35 @@ function stopReadingRecording(){
 async function runReadingCheck(){
   if(!state.sample){ notify("이 화면에서는 AI 첨삭을 사용할 수 없어요."); return; }
   if(!state.readingAudioBase64){ notify("녹음된 음성을 찾을 수 없어요. 다시 녹음해 주세요."); return; }
-  const target = (state.vocaWords || []).map(w => w.english).join(", ");
+  const target = (state.readingExtractedWords || []).join("\n");
   state.readingBusy = true;
   state.readingError = null;
   renderStudentReading(document.getElementById("content"));
 
   const prompt = `당신은 한국 초등학교 고학년(5~6학년) 학생을 가르치는 다정한 영어 발음 선생님입니다.
-첨부된 오디오는 학생이 단어장에 있는 영어 단어들을 하나씩 소리 내어 읽은 녹음입니다.
-학생이 읽어야 했던 단어 목록: ${target || "(목록 없음)"}
+첨부된 오디오는 학생이 사진 속 영어(단어 또는 문장)를 하나씩 소리 내어 읽은 녹음입니다. 항목이 단어일 수도, 문장일 수도 있습니다.
+학생이 읽어야 했던 목록:
+${target || "(목록 없음)"}
 
-먼저 오디오에서 학생이 실제로 말한 단어들을 순서대로 받아써 주세요.
-그 다음 각 단어의 발음/강세가 어색하거나 알아듣기 힘든지 판단해 주세요. 철자나 뜻이 아니라 "소리"에 집중하세요.
+먼저 오디오에서 학생이 실제로 말한 내용을 항목별로 순서대로 받아써 주세요.
+그 다음 각 항목(단어 또는 문장) 안에서 발음/강세/리듬이 어색하거나 알아듣기 힘든 부분이 있는지 판단해 주세요. 철자나 뜻이 아니라 "소리"에 집중하세요.
 
 반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드펜스 없이 순수 JSON 하나만 출력하세요.
 {
-  "transcript": "오디오에서 받아쓴 단어들 (쉼표로 구분)",
+  "transcript": "오디오에서 받아쓴 전체 내용",
   "overall": "전반적인 발음에 대한 한 줄 평가 (한국어, 초등학생이 이해하기 쉽게)",
-  "words": [
-    {"word": "though", "ok": false, "note": "무엇이 왜 어색한지 아주 쉬운 한국어로 짧게 설명"},
-    {"word": "school", "ok": true, "note": ""}
+  "sentences": [
+    {
+      "text": "학생이 읽은 첫 번째 항목 (단어 또는 문장)",
+      "words": [
+        {"word": "though", "ok": false, "note": "무엇이 왜 어색한지 아주 쉬운 한국어로 짧게 설명"},
+        {"word": "school", "ok": true, "note": ""}
+      ]
+    }
   ],
   "encouragement": "잘한 점을 짚어주는 격려 한마디 (한국어)"
 }
-"우리 5학년 친구"처럼 학생을 부르는 말은 쓰지 말고, 학년/나이 언급 없이 바로 설명하세요. words 배열에는 학생이 실제로 말한 단어를 순서대로 넣으세요.`;
+항목이 단어 하나라면 그 항목의 words 배열에도 그 단어 하나만 넣으세요. 항목이 문장이라면 문장을 이루는 주요 단어들을 words 배열에 순서대로 넣으세요. "우리 5학년 친구"처럼 학생을 부르는 말은 쓰지 말고, 학년/나이 언급 없이 바로 설명하세요.`;
 
   try{
     const res = await state.sample(prompt, { audio: { base64: state.readingAudioBase64, mimeType: state.readingAudioMime } });
@@ -2079,21 +2352,111 @@ async function submitReadingPron(){
   const cls = myClass();
   const btn = document.getElementById("reading-submit");
   btn.disabled = true; btn.textContent = "제출 중...";
-  const target = (state.vocaWords || []).map(w => w.english).join(", ");
-  const audioOk = state.readingPlaybackDataUrl && state.readingPlaybackDataUrl.length < 600000;
+  const target = (state.readingExtractedWords || []).join("\n");
+  const audioOk = state.readingPlaybackDataUrl && state.readingPlaybackDataUrl.length < 500000;
+  const photoOk = !audioOk ? false : (state.readingPhotoPreview && state.readingPhotoPreview.length < 180000);
   try{
     await state.db.collection("submissions").add({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
       type: "reading", text: transcript, targetText: target || null,
       feedback: state.readingFeedback,
       audioDataUrl: audioOk ? state.readingPlaybackDataUrl : null,
+      photoDataUrl: photoOk ? state.readingPhotoPreview : null,
       createdAt: Date.now()
     });
-    state.readingTranscript = ""; state.readingFeedback = null; state.readingError = null;
-    state.readingAudioBase64 = null; state.readingAudioMime = null; state.readingPlaybackDataUrl = null; state.readingPlaybackMime = null;
+    resetReadingPhoto();
     notify(audioOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (녹음이 길어서 음성 없이 텍스트만 저장됐어요)");
   }catch(e){ notify("제출에 실패했습니다."); }
   renderStudentReading(document.getElementById("content"));
+}
+
+// ---------- STUDENT: GRAMMAR ----------
+function renderStudentGrammar(content){
+  const cls = myClass();
+  const sets = cls ? state.grammarSets.filter(g => g.classId === cls.id) : [];
+  const set = sets.length ? sets[0] : null; // already ordered desc by createdAt
+
+  if(!set){
+    content.innerHTML = `<div class="card"><div class="empty"><span class="big">✏️</span>아직 등록된 Grammar 문제가 없어요.</div></div>`;
+    return;
+  }
+
+  if(state.grammarResult){
+    const score = state.grammarResult.filter(d => d.correct).length;
+    content.innerHTML = `
+      <div class="card">
+        <h2>결과<span class="sub">${esc(set.title || "Grammar 문제")}</span></h2>
+        <div style="font-size:26px;font-weight:800;color:var(--pine);margin:6px 0 14px;">${score} / ${state.grammarResult.length} 점</div>
+        <div class="fb-wrap">
+          ${state.grammarResult.map(d => `
+            <div class="fb-item ${d.correct ? "correct" : ""}">
+              <div class="fb-original" style="text-decoration:none;">${esc(d.question)}</div>
+              <div class="fb-explain">
+                내 답: ${esc(d.selectedText != null ? d.selectedText : "(빈칸)")} ${d.correct ? "✅" : `❌ (정답: ${esc(d.correctText)})`}
+                ${d.explanation ? `<br>${esc(d.explanation)}` : ""}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+        <button class="btn" id="grammar-retry" style="margin-top:16px;">다른 문제로 다시 풀기</button>
+      </div>
+    `;
+    document.getElementById("grammar-retry").onclick = () => { state.grammarResult = null; state.grammarAnswers = {}; renderStudentGrammar(document.getElementById("content")); };
+    return;
+  }
+
+  content.innerHTML = `
+    <div class="card">
+      <h2>${esc(set.title || "Grammar 문제")}<span class="sub">문제 ${set.problems.length}개</span></h2>
+      ${set.problems.map((p, i) => `
+        <div class="field">
+          <label>문제 ${i+1}. ${esc(p.question)}</label>
+          <div class="roster" id="grammar-choices-${i}">
+            ${p.choices.map((c, ci) => `
+              <label><input type="radio" name="grammar-q-${i}" value="${ci}" ${state.grammarAnswers[i]===ci?"checked":""}> ${esc(c)}</label>
+            `).join("")}
+          </div>
+        </div>
+      `).join("")}
+      <button class="btn" id="grammar-submit" style="width:100%;margin-top:10px;" ${state.grammarSubmitting?"disabled":""}>${state.grammarSubmitting?"채점 중...":"제출하기"}</button>
+    </div>
+  `;
+  set.problems.forEach((p, i) => {
+    document.querySelectorAll(`input[name="grammar-q-${i}"]`).forEach(el => {
+      el.onchange = e => { state.grammarAnswers[i] = +e.target.value; };
+    });
+  });
+  document.getElementById("grammar-submit").onclick = () => submitGrammar(set);
+}
+
+async function submitGrammar(set){
+  const cls = myClass();
+  const details = set.problems.map((p, i) => {
+    const selectedIndex = state.grammarAnswers[i];
+    const correct = selectedIndex === p.answerIndex;
+    return {
+      question: p.question,
+      selectedIndex: selectedIndex != null ? selectedIndex : null,
+      selectedText: selectedIndex != null ? p.choices[selectedIndex] : null,
+      correctIndex: p.answerIndex,
+      correctText: p.choices[p.answerIndex],
+      explanation: p.explanation || "",
+      correct
+    };
+  });
+  const score = details.filter(d => d.correct).length;
+  state.grammarSubmitting = true;
+  renderStudentGrammar(document.getElementById("content"));
+  try{
+    await state.db.collection("submissions").add({
+      classId: cls ? cls.id : null, homeworkId: null, grammarSetId: set.id, studentId: state.uid,
+      type: "grammar", score, total: details.length, details, createdAt: Date.now()
+    });
+    state.grammarResult = details;
+    notify("제출 완료! 선생님이 확인하실 수 있어요.");
+  }catch(e){ notify("제출에 실패했습니다."); }
+  state.grammarSubmitting = false;
+  renderStudentGrammar(document.getElementById("content"));
 }
 
 // ---------- STUDENT: MINE ----------
@@ -2172,6 +2535,10 @@ function startFirestoreListeners(){
     render();
     cleanupOldSubmissions();
   }));
+  unsubscribeFns.push(state.db.collection("grammarSets").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.grammarSets = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    render();
+  }));
 }
 function stopFirestoreListeners(){
   unsubscribeFns.forEach(fn => { try{ fn(); }catch(e){} });
@@ -2191,6 +2558,7 @@ async function init(){
       state.classes = []; state.homework = []; state.submissions = []; state.users = {};
       state.vocaWords = []; state.vocaWordsLoaded = false;
       state.vocaTestActive = false; state.vocaTestDone = false; state.vocaTestAnswers = [];
+      state.grammarSets = []; state.grammarDraftProblems = []; state.grammarAnswers = {}; state.grammarResult = null;
       state.usersLoaded = false;
     }
     state.ready = true;
