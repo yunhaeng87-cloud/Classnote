@@ -331,7 +331,7 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "883836206407",
   appId: "1:883836206407:web:3e9bbb4dd3bb706fb12062"
 };
-const GEMINI_API_KEY = "AQ.Ab8RN6JMxa0Qabj1cweHUNXXiUTvGQeCx0SebkL1peNhWa3jwg";
+const GEMINI_API_KEY = "AIzaSyCrhGXvaqlXB78qljh44S8XbPPqetelcbs";
 const GEMINI_MODEL = "gemini-3.5-flash-lite";
 // 선생님 회원가입 시 필요한 초대 코드입니다. 원하는 값으로 바꿔서, 선생님들에게만 알려주세요.
 const TEACHER_INVITE_CODE = "hagwon2026";
@@ -516,7 +516,7 @@ const state = {
   readingExtractedWords: [], readingWordsBusy: false, readingWordsError: null,
   grammarClassId: null, grammarDraftProblems: [], grammarGenBusy: false, grammarGenError: null,
   grammarCount: 5, grammarTopic: "",
-  grammarAnswers: {}, grammarSubmitting: false, grammarResult: null,
+  grammarAnswers: {}, grammarSubmitting: false, grammarResult: null, grammarLastSetId: null,
   vocaWords: [], vocaWordsLoaded: false,
   vocaTestActive: false, vocaTestQuestions: [], vocaTestIndex: 0, vocaTestAnswers: [],
   vocaTestDone: false, vocaTestSaving: false,
@@ -2281,6 +2281,14 @@ function renderStudentHomework(content){
   const sets = state.grammarSets.filter(g => g.classId === cls.id);
   const set = sets.length ? sets[0] : null; // already ordered desc by createdAt
 
+  if(set && state.grammarLastSetId !== set.id){
+    // A different (or first-seen) set is showing — clear any leftover
+    // answers/results from a previous set so old picks don't linger.
+    state.grammarLastSetId = set.id;
+    state.grammarAnswers = {};
+    state.grammarResult = null;
+  }
+
   if(!set){
     content.innerHTML = `
       <div class="card"><h2>${esc(cls.name)}<span class="sub">${esc(fmtSchedule(cls.schedule))}</span></h2></div>
@@ -2289,14 +2297,21 @@ function renderStudentHomework(content){
     return;
   }
 
-  if(state.grammarResult){
-    const score = state.grammarResult.filter(d => d.correct).length;
+  // Once submitted, that's final — pull the saved result back from the
+  // student's own submission (if any) instead of only trusting local state,
+  // so a reload or coming back later still shows "already submitted"
+  // rather than letting them answer again.
+  const mySub = state.submissions.find(s => s.studentId === state.uid && s.type === "grammar" && s.grammarSetId === set.id);
+  const resultDetails = state.grammarResult || (mySub && mySub.details) || null;
+
+  if(resultDetails){
+    const score = resultDetails.filter(d => d.correct).length;
     content.innerHTML = `
       <div class="card">
         <h2>결과<span class="sub">${esc(set.title || "Grammar 문제")}</span></h2>
-        <div style="font-size:26px;font-weight:800;color:var(--pine);margin:6px 0 14px;">${score} / ${state.grammarResult.length} 점</div>
+        <div style="font-size:26px;font-weight:800;color:var(--pine);margin:6px 0 14px;">${score} / ${resultDetails.length} 점</div>
         <div class="fb-wrap">
-          ${state.grammarResult.map(d => `
+          ${resultDetails.map(d => `
             <div class="fb-item ${d.correct ? "correct" : ""}">
               <div class="fb-original" style="text-decoration:none;">${esc(d.question)}</div>
               <div class="fb-explain">
@@ -2306,10 +2321,9 @@ function renderStudentHomework(content){
             </div>
           `).join("")}
         </div>
-        <button class="btn" id="grammar-retry" style="margin-top:16px;">다시 풀기</button>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin-top:14px;">이미 제출했어요. 선생님이 확인할 수 있어요.</p>
       </div>
     `;
-    document.getElementById("grammar-retry").onclick = () => { state.grammarResult = null; state.grammarAnswers = {}; renderStudentHomework(document.getElementById("content")); };
     return;
   }
 
@@ -2466,7 +2480,7 @@ async function init(){
       state.classes = []; state.homework = []; state.submissions = []; state.users = {};
       state.vocaWords = []; state.vocaWordsLoaded = false;
       state.vocaTestActive = false; state.vocaTestDone = false; state.vocaTestAnswers = [];
-      state.grammarSets = []; state.grammarDraftProblems = []; state.grammarAnswers = {}; state.grammarResult = null;
+      state.grammarSets = []; state.grammarDraftProblems = []; state.grammarAnswers = {}; state.grammarResult = null; state.grammarLastSetId = null;
       state.usersLoaded = false;
     }
     state.ready = true;
