@@ -569,14 +569,58 @@ function fmtTime(ts){
   const d = new Date(ts);
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
 }
+// 음력 기반 공휴일(설날/추석/부처님오신날)은 해마다 날짜가 달라서, 정부가 확정 발표한
+// 해만 정확히 넣을 수 있어요. 다음 해가 발표되면 이 목록에 한 줄씩 추가해주세요.
+const LUNAR_HOLIDAYS_2026 = [
+  "2026-01-01", // 신정 (참고용으로 같이 표기)
+  "2026-02-16","2026-02-17","2026-02-18", // 설날 연휴
+  "2026-05-24","2026-05-25", // 부처님오신날 + 대체공휴일
+  "2026-06-03", // 전국동시지방선거 (임시공휴일)
+  "2026-09-24","2026-09-25","2026-09-26", // 추석 연휴
+];
+// 날짜가 고정된 공휴일. 대체공휴일 규칙(주말과 겹치면 다음 평일로 이동)을 적용해
+// 2026~2045년 20년치를 자동으로 계산합니다. 신정·현충일·성탄절은 법적으로
+// 대체공휴일 적용 대상이 아니라서 규칙에서 제외했습니다.
+const FIXED_HOLIDAYS = [
+  {month:1, day:1, substitute:false},   // 신정
+  {month:3, day:1, substitute:true},    // 삼일절
+  {month:5, day:5, substitute:true},    // 어린이날
+  {month:6, day:6, substitute:false},   // 현충일
+  {month:8, day:15, substitute:true},   // 광복절
+  {month:10, day:3, substitute:true},   // 개천절
+  {month:10, day:9, substitute:true},   // 한글날
+  {month:12, day:25, substitute:false}, // 성탄절
+];
+function pad2(n){ return String(n).padStart(2, "0"); }
+function dateKey(y, m, d){ return `${y}-${pad2(m)}-${pad2(d)}`; }
+
+const KR_HOLIDAYS = new Set(LUNAR_HOLIDAYS_2026);
+for(let y = 2026; y <= 2045; y++){
+  for(const h of FIXED_HOLIDAYS){
+    const d = new Date(y, h.month - 1, h.day);
+    KR_HOLIDAYS.add(dateKey(y, h.month, h.day));
+    if(h.substitute && (d.getDay() === 0 || d.getDay() === 6)){
+      const sub = new Date(d);
+      do{ sub.setDate(sub.getDate() + 1); }
+      while(sub.getDay() === 0 || sub.getDay() === 6 || KR_HOLIDAYS.has(dateKey(sub.getFullYear(), sub.getMonth()+1, sub.getDate())));
+      KR_HOLIDAYS.add(dateKey(sub.getFullYear(), sub.getMonth()+1, sub.getDate()));
+    }
+  }
+}
+function isHoliday(date){
+  const y = date.getFullYear(), m = String(date.getMonth()+1).padStart(2,"0"), d = String(date.getDate()).padStart(2,"0");
+  return KR_HOLIDAYS.has(`${y}-${m}-${d}`);
+}
 // Given a class's weekly schedule ([{day:"화",start:"14:00",...}]), find the
 // most recent past class session and the next upcoming one, relative to now.
 // Used to define "this homework cycle" (since the last class, until the next).
+// Sessions that fall on a public holiday are skipped, so "next" naturally
+// rolls forward to the next normal class day.
 function getClassSessionsAround(schedule, now){
   if(!schedule || !schedule.length) return {prev: null, next: null};
   let prev = null, next = null;
   const nowTime = now.getTime();
-  for(let weekOffset = -2; weekOffset <= 2; weekOffset++){
+  for(let weekOffset = -3; weekOffset <= 3; weekOffset++){
     for(const slot of schedule){
       const dayIdx = DAYS.indexOf(slot.day);
       if(dayIdx < 0 || !slot.start) continue;
@@ -585,6 +629,7 @@ function getClassSessionsAround(schedule, now){
       const diffDays = dayIdx - base.getDay() + weekOffset * 7;
       const sessionDate = new Date(base);
       sessionDate.setDate(base.getDate() + diffDays);
+      if(isHoliday(sessionDate)) continue;
       const [sh, sm] = slot.start.split(":").map(Number);
       sessionDate.setHours(sh || 0, sm || 0, 0, 0);
       const t = sessionDate.getTime();
@@ -951,7 +996,7 @@ async function logout(){
 function renderShell(){
   const isTeacher = state.role === "teacher";
   const tabs = isTeacher
-    ? [["teacher-classes","클래스 관리"],["teacher-students","학생 관리"],["teacher-submissions","제출물 관리"]]
+    ? [["teacher-classes","클래스 관리"],["teacher-submissions","제출물 관리"],["teacher-students","학생 관리"]]
     : [["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-homework","Grammar"],["student-mine","내 제출물"]];
   const validViews = isTeacher ? [...tabs.map(t => t[0]), "teacher-class-detail"] : tabs.map(t => t[0]);
   if(!state.view || !validViews.includes(state.view)) state.view = tabs[0][0];
@@ -1262,7 +1307,7 @@ function renderTeacherSubmissionsHub(content){
       ${state.classes.length ? `
         <div class="field">
           <label>클래스</label>
-          <select id="subs-class">${state.classes.map(c => `<option value="${c.id}" ${c.id===state.subsClassId?"selected":""}>${esc(c.name)}</option>`).join("")}</select>
+          <select id="subs-class">${state.classes.map(c => `<option value="${c.id}" ${c.id===state.subsClassId?"selected":""}>${esc(c.name)} (${esc(fmtSchedule(c.schedule))})</option>`).join("")}</select>
         </div>
       ` : `<div class="empty"><span class="big">🗂️</span>먼저 클래스를 만들어 주세요</div>`}
     </div>
@@ -1309,7 +1354,7 @@ function renderTeacherSubmissionsHub(content){
   }else{
     statusEl.innerHTML = `
       <div class="sub-status">
-        ${prev || next ? `이번 주기: 지난 수업 ${fmtSessionDate(prev)} ~ 다음 수업 ${fmtSessionDate(next)}<br>` : ""}
+        ${next ? `이번 과제는 다음 수업 ${fmtSessionDate(next)} 까지 제출되어야 합니다.<br>` : ""}
         제출 현황: <span class="count">${rosterIds.filter(id => submittedIds.has(id)).length} / ${rosterIds.length}명</span> 제출함
         ${missingNames.length ? `<div class="missing">미제출: ${missingNames.map(esc).join(", ")}</div>` : ""}
       </div>
