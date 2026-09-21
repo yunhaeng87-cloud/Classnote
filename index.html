@@ -243,6 +243,12 @@ input,textarea,select{font-family:inherit;font-size:14px;}
 .sub-status{background:var(--paper-2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;}
 .sub-status .count{font-weight:700;color:var(--pine);}
 .sub-status .missing{color:var(--coral);margin-top:6px;font-size:12.5px;}
+.attend-table{border-collapse:collapse;width:100%;font-size:13px;}
+.attend-table th,.attend-table td{padding:8px 10px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap;}
+.attend-table th{color:var(--ink-soft);font-weight:600;font-size:11.5px;}
+.attend-table td.name{text-align:left;font-weight:600;}
+.attend-table td.yes{color:var(--pine);font-weight:700;}
+.attend-table td.no{color:var(--coral);font-weight:700;}
 .word-row:last-child{border-bottom:none;}
 .word-row .en{font-weight:700;flex:1;}
 .word-row .kr{color:var(--ink-soft);flex:1;}
@@ -501,7 +507,7 @@ const state = {
   uid: null, role: null, me: null,
   classes: [], homework: [], submissions: [], users: {}, grammarSets: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
-  selectedClassId: null, editingHomeworkId: null, teacherSubFilter: "writing", subsClassId: null,
+  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null,
   ready: false, available: true, usersLoaded: false,
   authMode: "login", authError: "", authBusy: false, authUsernameDraft: "",
   writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false,
@@ -645,6 +651,29 @@ function getClassSessionsAround(schedule, now){
 function fmtSessionDate(d){
   if(!d) return "-";
   return `${d.getMonth()+1}/${d.getDate()}(${DAYS[d.getDay()]}) ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+// Most recent `count` PAST class sessions (newest first), skipping holidays —
+// used to build the "last 5 classes, who submitted" table.
+function getRecentClassSessions(schedule, now, count){
+  if(!schedule || !schedule.length) return [];
+  const found = [];
+  for(let weekOffset = 0; weekOffset >= -20 && found.length < count + 5; weekOffset--){
+    for(const slot of schedule){
+      const dayIdx = DAYS.indexOf(slot.day);
+      if(dayIdx < 0 || !slot.start) continue;
+      const base = new Date(now);
+      base.setHours(0,0,0,0);
+      const diffDays = dayIdx - base.getDay() + weekOffset * 7;
+      const sessionDate = new Date(base);
+      sessionDate.setDate(base.getDate() + diffDays);
+      if(isHoliday(sessionDate)) continue;
+      const [sh, sm] = slot.start.split(":").map(Number);
+      sessionDate.setHours(sh || 0, sm || 0, 0, 0);
+      if(sessionDate.getTime() <= now.getTime()) found.push(sessionDate);
+    }
+  }
+  found.sort((a, b) => b - a);
+  return found.slice(0, count);
 }
 
 function nameOf(id){
@@ -1058,19 +1087,23 @@ function renderShell(){
 let slotDraft = [{day:"화", start:"14:00", end:"15:00"}];
 
 function renderTeacherClasses(content){
+  const editing = state.editingClassId ? state.classes.find(c => c.id === state.editingClassId) : null;
   content.innerHTML = `
     <div class="card">
-      <h2>새 클래스 만들기<span class="sub">클래스 이름과 수업 시간을 입력하세요</span></h2>
+      <h2>${editing ? "클래스 수정" : "새 클래스 만들기"}<span class="sub">클래스 이름과 수업 시간을 입력하세요</span></h2>
       <div class="field">
         <label>클래스 이름</label>
-        <input type="text" id="new-class-name" placeholder="예: Class A">
+        <input type="text" id="new-class-name" placeholder="예: Class A" value="${editing ? esc(editing.name) : ""}">
       </div>
       <div class="field">
         <label>수업 시간</label>
         <div id="slot-list"></div>
         <button class="btn ghost small" id="add-slot" type="button">+ 시간 추가</button>
       </div>
-      <button class="btn" id="create-class">클래스 만들기</button>
+      <div class="btn-row">
+        <button class="btn" id="create-class">${editing ? "수정 완료" : "클래스 만들기"}</button>
+        ${editing ? `<button class="btn secondary" id="cancel-class-edit">취소</button>` : ""}
+      </div>
     </div>
     <div class="card">
       <h2>클래스 목록<span class="sub">${state.classes.length}개</span></h2>
@@ -1082,7 +1115,12 @@ function renderTeacherClasses(content){
     slotDraft.push({day:"화", start:"14:00", end:"15:00"});
     renderSlotList();
   };
-  document.getElementById("create-class").onclick = createClass;
+  document.getElementById("create-class").onclick = editing ? updateClass : createClass;
+  if(editing) document.getElementById("cancel-class-edit").onclick = () => {
+    state.editingClassId = null;
+    slotDraft = [{day:"화", start:"14:00", end:"15:00"}];
+    renderTeacherClasses(content);
+  };
 
   const listEl = document.getElementById("class-list");
   if(!state.classes.length){
@@ -1098,12 +1136,20 @@ function renderTeacherClasses(content){
           </div>
           <div class="btn-row">
             <button class="btn small" data-open="${c.id}">열기</button>
+            <button class="btn secondary small" data-edit="${c.id}">편집</button>
             <button class="btn danger small" data-del="${c.id}">삭제</button>
           </div>
         </div>
       </div>
     `).join("");
     listEl.querySelectorAll("[data-del]").forEach(b => b.onclick = () => deleteClass(b.dataset.del));
+    listEl.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+      const cls = state.classes.find(c => c.id === b.dataset.edit);
+      state.editingClassId = b.dataset.edit;
+      slotDraft = (cls.schedule && cls.schedule.length) ? cls.schedule.map(s => ({...s})) : [{day:"화", start:"14:00", end:"15:00"}];
+      renderTeacherClasses(content);
+      content.scrollIntoView({behavior: "smooth", block: "start"});
+    });
     listEl.querySelectorAll("[data-open]").forEach(b => b.onclick = () => {
       state.selectedClassId = b.dataset.open;
       state.view = "teacher-class-detail";
@@ -1146,6 +1192,23 @@ async function createClass(){
     slotDraft = [{day:"화", start:"14:00", end:"15:00"}];
   }catch(e){ notify("클래스 생성에 실패했습니다."); }
   btn.disabled = false; btn.textContent = "클래스 만들기";
+  renderTeacherClasses(document.getElementById("content"));
+}
+
+async function updateClass(){
+  const nameEl = document.getElementById("new-class-name");
+  const name = nameEl.value.trim();
+  if(!name){ nameEl.focus(); return; }
+  const btn = document.getElementById("create-class");
+  btn.disabled = true; btn.textContent = "저장 중...";
+  try{
+    await state.db.doc(`classes/${state.editingClassId}`).update({
+      name, schedule: slotDraft.map(s => ({...s}))
+    });
+    state.editingClassId = null;
+    slotDraft = [{day:"화", start:"14:00", end:"15:00"}];
+    notify("수정했어요.");
+  }catch(e){ notify("수정에 실패했습니다."); }
   renderTeacherClasses(document.getElementById("content"));
 }
 
@@ -1314,6 +1377,10 @@ function renderTeacherSubmissionsHub(content){
 
     ${cls ? `
       <div class="card">
+        <h2>최근 수업 5회 제출 현황</h2>
+        <div id="attend-table"></div>
+      </div>
+      <div class="card">
         <div class="tabs" style="margin-bottom:14px;">
           <button class="tab-btn ${state.teacherSubFilter==='writing'?'active':''}" data-subfilter="writing">Sentence</button>
           <button class="tab-btn ${state.teacherSubFilter==='speaking'?'active':''}" data-subfilter="speaking">Shadowing</button>
@@ -1338,6 +1405,44 @@ function renderTeacherSubmissionsHub(content){
   const type = state.teacherSubFilter || "writing";
   const allTypeSubs = state.submissions.filter(s => s.classId === cls.id && s.type === type);
   const rosterIds = cls.studentIds || [];
+
+  // Attendance-style table: last 5 class sessions as columns, students as
+  // rows, ✓/✗ per session based on whether they submitted within that
+  // session's window (up to the following session).
+  const attendEl = document.getElementById("attend-table");
+  if(attendEl){
+    const recentSessions = getRecentClassSessions(cls.schedule, new Date(), 5); // newest first
+    if(!recentSessions.length || !rosterIds.length){
+      attendEl.innerHTML = `<div class="empty" style="padding:16px;"><span class="big">🗓️</span>${!rosterIds.length ? "배정된 학생이 없어요" : "이 클래스는 아직 지난 수업 기록이 없어요"}</div>`;
+    }else{
+      const {next: futureNext} = getClassSessionsAround(cls.schedule, new Date());
+      // windowEnd[i]: the session right after recentSessions[i] (older index
+      // = later date, since the array is newest-first); for the newest
+      // column (i=0) it's the upcoming session, or "now" if none.
+      const windowEnds = recentSessions.map((s, i) => i === 0 ? (futureNext || new Date()) : recentSessions[i-1]);
+      attendEl.innerHTML = `
+        <div style="overflow-x:auto;">
+        <table class="attend-table">
+          <thead><tr>
+            <th>학생</th>
+            ${recentSessions.map(s => `<th>${s.getMonth()+1}/${s.getDate()}(${DAYS[s.getDay()]})</th>`).join("")}
+          </tr></thead>
+          <tbody>
+            ${rosterIds.map(id => `
+              <tr>
+                <td class="name">${esc(nameOf(id))}</td>
+                ${recentSessions.map((s, i) => {
+                  const got = allTypeSubs.some(sub => sub.studentId === id && sub.createdAt >= s.getTime() && sub.createdAt < windowEnds[i].getTime());
+                  return `<td class="${got?"yes":"no"}">${got?"✓":"✗"}</td>`;
+                }).join("")}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        </div>
+      `;
+    }
+  }
 
   // "This cycle" = since the last class session (or the beginning, if none
   // has happened yet), up to the next one — this is the homework window
