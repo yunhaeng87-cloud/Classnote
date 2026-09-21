@@ -29,7 +29,8 @@
       match /users/{uid} {
         allow read: if isSignedIn();
         allow create: if isSignedIn() && request.auth.uid == uid;
-        allow update, delete: if isSignedIn() && request.auth.uid == uid;
+        allow update: if isSignedIn() && request.auth.uid == uid;
+        allow delete: if isSignedIn() && (request.auth.uid == uid || myRole() == 'teacher');
       }
       match /classes/{id} {
         allow read: if isSignedIn();
@@ -357,6 +358,7 @@ const CHANGELOG = [
   { date: "2026-09-21", items: [
     "음성 용량 850KB / 사진 용량 700KB로 확대, 용량 초과로 저장 안 된 경우 선생님 화면에 표시",
     "배정되지 않은 학생도 제출할 수 있던 문제 해결",
+    "학생 관리에서 삭제가 되지 않던 문제 해결",
   ]},
 ];
 // ======================================
