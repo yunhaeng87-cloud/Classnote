@@ -41,7 +41,8 @@
       }
       match /submissions/{id} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid;
+        allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid
+                      && request.auth.uid in get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.studentIds;
         allow delete: if isSignedIn() && myRole() == 'teacher';
         allow update: if isSignedIn() && resource.data.studentId == request.auth.uid
                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shadowedAt']);
@@ -1538,6 +1539,7 @@ function renderSubmissionBody(s){
   return `
     ${s.photoDataUrl ? `<img class="photo-thumb" src="${s.photoDataUrl}" data-fullimg="${s.photoDataUrl}">` : ""}
     ${s.audioDataUrl ? `<audio controls src="${s.audioDataUrl}" style="width:100%;margin-top:8px;height:38px;"></audio>` : ""}
+    ${!s.audioDataUrl && s.audioTooLong ? `<div style="color:var(--coral);font-size:12.5px;margin-top:6px;">⚠️ 녹음 파일 없음 — 녹음이 너무 길어서 저장되지 않았어요 (발음 판정 결과는 있어요)</div>` : ""}
     <div class="stext">${esc(s.text)}</div>
     ${s.originalText && s.originalText !== s.text ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">원래 문장: ${esc(s.originalText)}</div>` : ""}
     ${s.targetText ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">목표 문장: ${esc(s.targetText)}</div>` : ""}
@@ -1689,6 +1691,10 @@ function myLatestStorySubmission(){
 
 // ---------- STUDENT: WRITING (Story) ----------
 function renderStudentWriting(content){
+  if(!myClass()){
+    content.innerHTML = `<div class="card"><div class="empty"><span class="big">🙋</span>아직 배정된 클래스가 없어요.<br>선생님께 문의해 주세요.</div></div>`;
+    return;
+  }
   content.innerHTML = `
     <div class="card">
       <h2>Sentence 제출<span class="sub">손으로 쓴 작문 사진을 올리면 AI가 첨삭해줘요</span></h2>
@@ -1829,6 +1835,10 @@ async function submitWritingPhoto(){
 
 // ---------- STUDENT: SPEAKING (shadowing) ----------
 function renderStudentSpeaking(content){
+  if(!myClass()){
+    content.innerHTML = `<div class="card"><div class="empty"><span class="big">🙋</span>아직 배정된 클래스가 없어요.<br>선생님께 문의해 주세요.</div></div>`;
+    return;
+  }
   const supported = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder;
   const storySub = myLatestStorySubmission();
   const target = storySub && storySub.shadowingText;
@@ -2006,13 +2016,14 @@ async function submitSpeaking(){
   btn.disabled = true; btn.textContent = "제출 중...";
   const storySub = myLatestStorySubmission();
   // Firestore documents cap out at 1 MiB; keep a safe margin for the other fields.
-  const audioOk = state.speakingPlaybackDataUrl && state.speakingPlaybackDataUrl.length < 600000;
+  const audioOk = state.speakingPlaybackDataUrl && state.speakingPlaybackDataUrl.length < 850000;
   try{
     await state.db.collection("submissions").add({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
       type: "speaking", text: transcript, targetText: (storySub && storySub.shadowingText) || null,
       feedback: state.speakingFeedback,
       audioDataUrl: audioOk ? state.speakingPlaybackDataUrl : null,
+      audioTooLong: !audioOk,
       createdAt: Date.now()
     });
     state.speakingTranscript = ""; state.speakingFeedback = null; state.speakingError = null;
@@ -2021,7 +2032,8 @@ async function submitSpeaking(){
       try{ await state.db.doc(`submissions/${storySub.id}`).update({shadowedAt: Date.now()}); }
       catch(e){ notify("따라 말할 문장 정리에 실패했어요: " + ((e && e.message) || e)); }
     }
-    notify(audioOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (녹음이 길어서 음성 없이 텍스트만 저장됐어요)");
+    if(audioOk){ notify("제출 완료! 선생님이 확인하실 수 있어요."); }
+    else{ notify("제출 완료! (녹음이 길어서 음성 없이 텍스트만 저장됐어요)"); }
   }catch(e){ notify("제출에 실패했습니다."); }
   renderStudentSpeaking(document.getElementById("content"));
 }
@@ -2047,6 +2059,10 @@ async function saveVocaWords(){
 }
 
 function renderStudentVoca(content){
+  if(!myClass()){
+    content.innerHTML = `<div class="card"><div class="empty"><span class="big">🙋</span>아직 배정된 클래스가 없어요.<br>선생님께 문의해 주세요.</div></div>`;
+    return;
+  }
   if(!state.vocaWordsLoaded){
     content.innerHTML = `<div class="card"><div class="thinking">단어장을 불러오는 중...</div></div>`;
     loadVocaWords();
@@ -2227,6 +2243,10 @@ async function submitVocaTest(){
 
 // ---------- STUDENT: READING (upload a word-list photo, then read it aloud) ----------
 function renderStudentReading(content){
+  if(!myClass()){
+    content.innerHTML = `<div class="card"><div class="empty"><span class="big">🙋</span>아직 배정된 클래스가 없어요.<br>선생님께 문의해 주세요.</div></div>`;
+    return;
+  }
   const supported = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder;
   const target = (state.readingExtractedWords || []).join("\n");
   content.innerHTML = `
@@ -2470,7 +2490,7 @@ async function submitReadingPron(){
   const btn = document.getElementById("reading-submit");
   btn.disabled = true; btn.textContent = "제출 중...";
   const target = (state.readingExtractedWords || []).join("\n");
-  const audioOk = state.readingPlaybackDataUrl && state.readingPlaybackDataUrl.length < 500000;
+  const audioOk = state.readingPlaybackDataUrl && state.readingPlaybackDataUrl.length < 850000;
   const photoOk = !audioOk ? false : (state.readingPhotoPreview && state.readingPhotoPreview.length < 180000);
   try{
     await state.db.collection("submissions").add({
@@ -2478,6 +2498,7 @@ async function submitReadingPron(){
       type: "reading", text: transcript, targetText: target || null,
       feedback: state.readingFeedback,
       audioDataUrl: audioOk ? state.readingPlaybackDataUrl : null,
+      audioTooLong: !audioOk,
       photoDataUrl: photoOk ? state.readingPhotoPreview : null,
       createdAt: Date.now()
     });
