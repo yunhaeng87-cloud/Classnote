@@ -1538,6 +1538,7 @@ function renderSubmissionBody(s){
   }
   return `
     ${s.photoDataUrl ? `<img class="photo-thumb" src="${s.photoDataUrl}" data-fullimg="${s.photoDataUrl}">` : ""}
+    ${!s.photoDataUrl && s.photoTooLarge ? `<div style="color:var(--coral);font-size:12.5px;margin-top:6px;">⚠️ 사진 없음 — 사진이 너무 커서 저장되지 않았어요 (텍스트/첨삭 결과는 있어요)</div>` : ""}
     ${s.audioDataUrl ? `<audio controls src="${s.audioDataUrl}" style="width:100%;margin-top:8px;height:38px;"></audio>` : ""}
     ${!s.audioDataUrl && s.audioTooLong ? `<div style="color:var(--coral);font-size:12.5px;margin-top:6px;">⚠️ 녹음 파일 없음 — 녹음이 너무 길어서 저장되지 않았어요 (발음 판정 결과는 있어요)</div>` : ""}
     <div class="stext">${esc(s.text)}</div>
@@ -1811,8 +1812,8 @@ async function submitWritingPhoto(){
   const cls = myClass();
   const btn = document.getElementById("writing-photo-submit");
   btn.disabled = true; btn.textContent = "제출 중...";
-  // Firestore documents cap out at 256 KiB; skip embedding the photo if it's too close to that limit.
-  const photoOk = state.writingPhotoPreview && state.writingPhotoPreview.length < 180000;
+  // Firestore documents cap out at 1 MiB; leave headroom for the other fields.
+  const photoOk = state.writingPhotoPreview && state.writingPhotoPreview.length < 700000;
   // Build the "clean" (grammar-corrected) version of what the student wrote —
   // this becomes the sentence they'll shadow later, so they practice
   // pronouncing correct English rather than their own mistakes.
@@ -1824,7 +1825,9 @@ async function submitWritingPhoto(){
     await state.db.collection("submissions").add({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
       type: "writing", text: transcript, feedback: state.writingPhotoFeedback, shadowingText,
-      photoDataUrl: photoOk ? state.writingPhotoPreview : null, createdAt: Date.now()
+      photoDataUrl: photoOk ? state.writingPhotoPreview : null,
+      photoTooLarge: !photoOk,
+      createdAt: Date.now()
     });
     state.writingPhotoPreview = null; state.writingPhotoBase64 = null; state.writingPhotoMime = null;
     state.writingPhotoFeedback = null; state.writingPhotoTranscript = null;
@@ -2500,6 +2503,7 @@ async function submitReadingPron(){
       audioDataUrl: audioOk ? state.readingPlaybackDataUrl : null,
       audioTooLong: !audioOk,
       photoDataUrl: photoOk ? state.readingPhotoPreview : null,
+      photoTooLarge: !photoOk,
       createdAt: Date.now()
     });
     resetReadingPhoto();
