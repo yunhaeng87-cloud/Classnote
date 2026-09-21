@@ -1189,8 +1189,8 @@ function renderSlotList(){
   el.innerHTML = slotDraft.map((s,i) => `
     <div class="slot-row">
       <select data-i="${i}" data-f="day">${DAYS.map(d => `<option ${d===s.day?"selected":""}>${d}</option>`).join("")}</select>
-      <input type="time" data-i="${i}" data-f="start" value="${s.start}">
-      <input type="time" data-i="${i}" data-f="end" value="${s.end}">
+      <input type="time" data-i="${i}" data-f="start" value="${s.start}" step="300">
+      <input type="time" data-i="${i}" data-f="end" value="${s.end}" step="300">
       ${slotDraft.length>1 ? `<button type="button" class="rm" data-rm="${i}">×</button>` : ""}
     </div>
   `).join("");
