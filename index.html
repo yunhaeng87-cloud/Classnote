@@ -1377,7 +1377,7 @@ function renderTeacherSubmissionsHub(content){
 
     ${cls ? `
       <div class="card">
-        <h2>최근 수업 5회 제출 현황</h2>
+        <h2>최근 수업 5회 제출 현황<span class="sub">(${esc(typeBadgeLabel(state.teacherSubFilter || "writing"))})</span></h2>
         <div id="attend-table"></div>
       </div>
       <div class="card">
