@@ -56,6 +56,10 @@
         allow read: if isSignedIn();
         allow write: if isSignedIn() && myRole() == 'teacher';
       }
+      match /notices/{id} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && myRole() == 'teacher';
+      }
     }
   }
 -->
@@ -360,6 +364,7 @@ const CHANGELOG = [
     "배정되지 않은 학생도 제출할 수 있던 문제 해결",
     "학생 관리에서 삭제가 되지 않던 문제 해결",
     "Shadowing/Reading에서 AI가 들은 내용이 한 문단으로 뭉쳐 나오던 것을 문장별로 줄바꿈되게 수정",
+    "선생님이 클래스별로 알림장을 남기고, 학생이 확인할 수 있는 기능 추가",
   ]},
 ];
 // ======================================
@@ -517,7 +522,7 @@ async function audioBlobToWavBase64(blob){
 const state = {
   db: null, sample: geminiSample,
   uid: null, role: null, me: null,
-  classes: [], homework: [], submissions: [], users: {}, grammarSets: [],
+  classes: [], homework: [], submissions: [], users: {}, grammarSets: [], notices: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
   selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null,
   ready: false, available: true, usersLoaded: false,
@@ -1051,7 +1056,7 @@ function renderShell(){
   const isTeacher = state.role === "teacher";
   const tabs = isTeacher
     ? [["teacher-classes","클래스 관리"],["teacher-submissions","제출물 관리"],["teacher-students","학생 관리"]]
-    : [["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-homework","Grammar"],["student-mine","내 제출물"]];
+    : [["student-notice","알림장"],["student-writing","Sentence"],["student-speaking","Shadowing"],["student-voca","Voca"],["student-reading","Reading"],["student-homework","Grammar"],["student-mine","내 제출물"]];
   const validViews = isTeacher ? [...tabs.map(t => t[0]), "teacher-class-detail"] : tabs.map(t => t[0]);
   if(!state.view || !validViews.includes(state.view)) state.view = tabs[0][0];
   if(state.view === "teacher-class-detail" && !state.classes.some(c => c.id === state.selectedClassId)){
@@ -1099,7 +1104,8 @@ function renderShell(){
     else if(state.view === "teacher-submissions") renderTeacherSubmissionsHub(content);
     else renderTeacherStudents(content);
   }else{
-    if(state.view === "student-homework") renderStudentHomework(content);
+    if(state.view === "student-notice") renderStudentNotice(content);
+    else if(state.view === "student-homework") renderStudentHomework(content);
     else if(state.view === "student-writing") renderStudentWriting(content);
     else if(state.view === "student-speaking") renderStudentSpeaking(content);
     else if(state.view === "student-voca") renderStudentVoca(content);
@@ -1264,6 +1270,15 @@ function renderTeacherClassDetail(content){
     </div>
 
     <div class="card">
+      <h2>알림장<span class="sub">학생들에게 보여줄 공지사항을 남겨보세요</span></h2>
+      <div class="field">
+        <textarea id="notice-content" placeholder="예: 이번 주 금요일은 휴강입니다."></textarea>
+      </div>
+      <button class="btn" id="notice-post">게시하기</button>
+      <div id="notice-list" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card">
       <h2>Grammar 문제 출제<span class="sub">AI에게 문제를 요청하고, 검토한 뒤 학생에게 게시하세요</span></h2>
       <div class="field">
         <label>문제 개수</label>
@@ -1325,6 +1340,40 @@ function renderTeacherClassDetail(content){
     addEl.querySelectorAll("[data-add]").forEach(b => b.onclick = async () => {
       try{ await state.db.doc(`classes/${cls.id}`).update({studentIds: [...memberIds, b.dataset.add]}); }
       catch(e){ notify("변경에 실패했습니다."); }
+    });
+  }
+
+  // notices
+  const clsNotices = state.notices.filter(n => n.classId === cls.id);
+  document.getElementById("notice-post").onclick = async () => {
+    const ta = document.getElementById("notice-content");
+    const text = ta.value.trim();
+    if(!text) return;
+    const btn = document.getElementById("notice-post");
+    btn.disabled = true; btn.textContent = "게시 중...";
+    try{
+      await state.db.collection("notices").add({
+        classId: cls.id, content: text, createdAt: Date.now(), createdBy: state.uid
+      });
+      ta.value = "";
+    }catch(e){ notify("게시에 실패했습니다."); }
+    btn.disabled = false; btn.textContent = "게시하기";
+  };
+  const noticeListEl = document.getElementById("notice-list");
+  if(!clsNotices.length){
+    noticeListEl.innerHTML = `<div class="empty"><span class="big">📌</span>아직 등록된 알림장이 없어요</div>`;
+  }else{
+    noticeListEl.innerHTML = clsNotices.map(n => `
+      <div class="hw-item">
+        <div class="meta">${fmtTime(n.createdAt)}</div>
+        <div class="content">${esc(n.content)}</div>
+        <button class="btn danger small" style="margin-top:8px;" data-noticedel="${n.id}">삭제</button>
+      </div>
+    `).join("");
+    noticeListEl.querySelectorAll("[data-noticedel]").forEach(b => b.onclick = async () => {
+      if(!(await confirmDialog("이 알림장을 삭제할까요?"))) return;
+      try{ await state.db.doc(`notices/${b.dataset.noticedel}`).delete(); }
+      catch(e){ notify("삭제에 실패했습니다."); }
     });
   }
 
@@ -2547,6 +2596,31 @@ async function submitReadingPron(){
 }
 
 // ---------- STUDENT: HOMEWORK (= Grammar quiz issued by the teacher) ----------
+// ---------- STUDENT: NOTICE ----------
+function renderStudentNotice(content){
+  const cls = myClass();
+  if(!cls){
+    content.innerHTML = `<div class="card"><div class="empty"><span class="big">🙋</span>아직 배정된 클래스가 없어요.<br>선생님께 문의해 주세요.</div></div>`;
+    return;
+  }
+  const clsNotices = state.notices.filter(n => n.classId === cls.id);
+  content.innerHTML = `
+    <div class="card">
+      <h2>알림장<span class="sub">${esc(cls.name)} 클래스 공지사항</span></h2>
+      ${clsNotices.length ? `
+        <div>
+          ${clsNotices.map(n => `
+            <div class="hw-item">
+              <div class="meta">${fmtTime(n.createdAt)}</div>
+              <div class="content">${esc(n.content)}</div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<div class="empty"><span class="big">📌</span>아직 등록된 알림장이 없어요</div>`}
+    </div>
+  `;
+}
+
 function renderStudentHomework(content){
   const cls = myClass();
   if(!cls){
@@ -2736,6 +2810,10 @@ function startFirestoreListeners(){
     state.grammarSets = snap.docs.map(d => ({id: d.id, ...d.data()}));
     render();
   }));
+  unsubscribeFns.push(state.db.collection("notices").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.notices = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    render();
+  }));
 }
 function stopFirestoreListeners(){
   unsubscribeFns.forEach(fn => { try{ fn(); }catch(e){} });
@@ -2756,6 +2834,7 @@ async function init(){
       state.vocaWords = []; state.vocaWordsLoaded = false;
       state.vocaTestActive = false; state.vocaTestDone = false; state.vocaTestAnswers = [];
       state.grammarSets = []; state.grammarDraftProblems = []; state.grammarAnswers = {}; state.grammarResult = null; state.grammarLastSetId = null;
+      state.notices = [];
       state.usersLoaded = false;
     }
     state.ready = true;
