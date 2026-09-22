@@ -157,6 +157,8 @@ input,textarea,select{font-family:inherit;font-size:14px;}
 .role-pill.student{background:var(--marigold);color:var(--pine-deep);}
 
 .tabs{display:flex;gap:6px;margin-bottom:22px;overflow-x:auto;padding-bottom:2px;}
+.notice-tab-row{margin-bottom:10px;}
+.notice-tab-row .notice-tab{width:100%;font-weight:700;}
 .tab-btn{
   border:1px solid var(--line);background:var(--card);color:var(--ink-soft);
   padding:9px 15px;border-radius:99px;font-size:13.5px;font-weight:600;
@@ -1063,6 +1065,8 @@ function renderShell(){
     state.view = "teacher-classes";
   }
   const activeTab = state.view === "teacher-class-detail" ? "teacher-classes" : state.view;
+  const noticeTab = !isTeacher ? tabs.find(t => t[0] === "student-notice") : null;
+  const restTabs = !isTeacher ? tabs.filter(t => t[0] !== "student-notice") : tabs;
 
   const meName = (state.me && state.me.name) || "";
 
@@ -1084,8 +1088,13 @@ function renderShell(){
           <button class="reset-role" id="logout-btn">로그아웃</button>
         </div>
       </div>
+      ${noticeTab ? `
+        <div class="notice-tab-row">
+          <button class="tab-btn notice-tab ${activeTab===noticeTab[0]?"active":""}" data-view="${noticeTab[0]}">📌 ${noticeTab[1]}</button>
+        </div>
+      ` : ""}
       <div class="tabs">
-        ${tabs.map(([v,label]) => `<button class="tab-btn ${activeTab===v?"active":""}" data-view="${v}">${label}</button>`).join("")}
+        ${restTabs.map(([v,label]) => `<button class="tab-btn ${activeTab===v?"active":""}" data-view="${v}">${label}</button>`).join("")}
       </div>
       <div id="content"></div>
     </div>
@@ -2604,17 +2613,14 @@ function renderStudentNotice(content){
     return;
   }
   const clsNotices = state.notices.filter(n => n.classId === cls.id);
+  const latest = clsNotices.length ? clsNotices[0] : null; // notices are already ordered desc by createdAt
   content.innerHTML = `
     <div class="card">
       <h2>알림장<span class="sub">${esc(cls.name)} 클래스 공지사항</span></h2>
-      ${clsNotices.length ? `
-        <div>
-          ${clsNotices.map(n => `
-            <div class="hw-item">
-              <div class="meta">${fmtTime(n.createdAt)}</div>
-              <div class="content">${esc(n.content)}</div>
-            </div>
-          `).join("")}
+      ${latest ? `
+        <div class="hw-item">
+          <div class="meta">${fmtTime(latest.createdAt)}</div>
+          <div class="content">${esc(latest.content)}</div>
         </div>
       ` : `<div class="empty"><span class="big">📌</span>아직 등록된 알림장이 없어요</div>`}
     </div>
@@ -2764,7 +2770,7 @@ function syncProfileFromUsers(){
   if(state.uid && state.users[state.uid]){
     state.role = state.users[state.uid].role;
     state.me = {name: state.users[state.uid].name};
-    if(!state.view) state.view = state.role === "teacher" ? "teacher-classes" : "student-homework";
+    if(!state.view) state.view = state.role === "teacher" ? "teacher-classes" : "student-notice";
   }
 }
 
