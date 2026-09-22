@@ -359,6 +359,7 @@ const CHANGELOG = [
     "음성 용량 850KB / 사진 용량 700KB로 확대, 용량 초과로 저장 안 된 경우 선생님 화면에 표시",
     "배정되지 않은 학생도 제출할 수 있던 문제 해결",
     "학생 관리에서 삭제가 되지 않던 문제 해결",
+    "Shadowing/Reading에서 AI가 들은 내용이 한 문단으로 뭉쳐 나오던 것을 문장별로 줄바꿈되게 수정",
   ]},
 ];
 // ======================================
@@ -2025,7 +2026,12 @@ ${target ? `학생이 따라 말해야 했던 목표 문장: "${target}"` : "특
     const res = await state.sample(prompt, { audio: { base64: state.speakingAudioBase64, mimeType: state.speakingAudioMime } });
     state.speakingFeedback = res.text;
     const parsed = extractJsonLoose(res.text);
-    state.speakingTranscript = (parsed && parsed.transcript) || "";
+    // One sentence per line (from the already-segmented "sentences" array)
+    // instead of the free-form "transcript" string, which often comes back
+    // as one run-on paragraph.
+    state.speakingTranscript = (parsed && Array.isArray(parsed.sentences) && parsed.sentences.length)
+      ? parsed.sentences.map(s => s.text || "").filter(Boolean).join("\n")
+      : (parsed && parsed.transcript) || "";
   }catch(e){
     state.speakingFeedback = "";
     state.speakingError = (e && e.message) ? e.message : String(e);
@@ -2500,7 +2506,12 @@ ${target || "(목록 없음)"}
     const res = await state.sample(prompt, { audio: { base64: state.readingAudioBase64, mimeType: state.readingAudioMime } });
     state.readingFeedback = res.text;
     const parsed = extractJsonLoose(res.text);
-    state.readingTranscript = (parsed && parsed.transcript) || "";
+    // Build the transcript one sentence/item per line (from the already
+    // segmented "sentences" array) instead of the free-form "transcript"
+    // string, which often comes back as one run-on paragraph.
+    state.readingTranscript = (parsed && Array.isArray(parsed.sentences) && parsed.sentences.length)
+      ? parsed.sentences.map(s => s.text || "").filter(Boolean).join("\n")
+      : (parsed && parsed.transcript) || "";
   }catch(e){
     state.readingFeedback = "";
     state.readingError = (e && e.message) ? e.message : String(e);
