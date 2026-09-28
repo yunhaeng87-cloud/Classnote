@@ -378,6 +378,8 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 // 새 항목은 배열 맨 앞에 추가하세요 (날짜, 내용).
 const CHANGELOG = [
   { date: "2026-09-28", items: [
+    "학생 '내 제출물'을 이번 과제(지난 수업 이후) 기준 최근 제출물만 보이게 하고, 종류별 필터와 지난 제출물 보기 추가",
+    "녹음을 음성 전용 저용량으로 저장해 더 긴 녹음(약 3분 30초)도 저장되도록 개선",
     "선생님이 제출물마다 피드백을 남기고, 학생은 '내 제출물'에서 확인할 수 있게 추가",
     "학생 화면 탭에 이번 과제 제출 완료 ✓ 표시 추가 (다음 수업 시간까지 기준)",
     "Shadowing/Reading에서 제출 전에 내 녹음을 다시 들어볼 수 있게 추가",
@@ -508,16 +510,33 @@ async function audioBlobToWavBase64(blob){
   }finally{
     ctx.close();
   }
-  const numFrames = audioBuffer.length;
-  const sampleRate = audioBuffer.sampleRate;
-  const channels = [];
-  for(let c = 0; c < audioBuffer.numberOfChannels; c++) channels.push(audioBuffer.getChannelData(c));
-  const mono = new Float32Array(numFrames);
-  for(let i = 0; i < numFrames; i++){
-    let sum = 0;
-    for(let c = 0; c < channels.length; c++) sum += channels[c][i];
-    mono[i] = sum / channels.length;
+  let mono, sampleRate;
+  try{
+    // Downmix + resample to 16 kHz mono: Gemini works at 16 kHz anyway, and this
+    // makes the upload ~3x smaller so longer recordings still fit in one request.
+    const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const targetRate = 16000;
+    const offline = new OfflineCtx(1, Math.max(1, Math.ceil(audioBuffer.duration * targetRate)), targetRate);
+    const src = offline.createBufferSource();
+    src.buffer = audioBuffer;
+    src.connect(offline.destination);
+    src.start(0);
+    const rendered = await offline.startRendering();
+    mono = rendered.getChannelData(0);
+    sampleRate = targetRate;
+  }catch(e){
+    const frames = audioBuffer.length;
+    sampleRate = audioBuffer.sampleRate;
+    const channels = [];
+    for(let c = 0; c < audioBuffer.numberOfChannels; c++) channels.push(audioBuffer.getChannelData(c));
+    mono = new Float32Array(frames);
+    for(let i = 0; i < frames; i++){
+      let sum = 0;
+      for(let c = 0; c < channels.length; c++) sum += channels[c][i];
+      mono[i] = sum / channels.length;
+    }
   }
+  const numFrames = mono.length;
   const dataSize = numFrames * 2;
   const buffer = new ArrayBuffer(44 + dataSize);
   const view = new DataView(buffer);
@@ -548,7 +567,7 @@ const state = {
   uid: null, role: null, me: null,
   classes: [], homework: [], submissions: [], users: {}, grammarSets: [], notices: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
-  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null,
+  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null, mineFilter: "all", mineShowAll: false,
   ready: false, available: true, usersLoaded: false,
   authMode: "login", authError: "", authBusy: false, authUsernameDraft: "",
   writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false,
@@ -2038,7 +2057,8 @@ function startRecording(){
     state.mediaStream = stream;
     state.audioChunks = [];
     let mr;
-    try{ mr = new MediaRecorder(stream); }catch(e){ mr = null; }
+    try{ mr = new MediaRecorder(stream, { audioBitsPerSecond: 24000 }); }
+    catch(e){ try{ mr = new MediaRecorder(stream); }catch(e2){ mr = null; } }
     if(!mr){
       stream.getTracks().forEach(t => t.stop());
       notify("이 브라우저에서는 녹음을 지원하지 않아요.");
@@ -2535,7 +2555,8 @@ function startReadingRecording(){
     state.mediaStream = stream;
     state.audioChunks = [];
     let mr;
-    try{ mr = new MediaRecorder(stream); }catch(e){ mr = null; }
+    try{ mr = new MediaRecorder(stream, { audioBitsPerSecond: 24000 }); }
+    catch(e){ try{ mr = new MediaRecorder(stream); }catch(e2){ mr = null; } }
     if(!mr){
       stream.getTracks().forEach(t => t.stop());
       notify("이 브라우저에서는 녹음을 지원하지 않아요.");
@@ -2642,7 +2663,7 @@ async function submitReadingPron(){
   btn.disabled = true; btn.textContent = "제출 중...";
   const target = (state.readingExtractedWords || []).join("\n");
   const audioOk = state.readingPlaybackDataUrl && state.readingPlaybackDataUrl.length < 850000;
-  const photoOk = !audioOk ? false : (state.readingPhotoPreview && state.readingPhotoPreview.length < 180000);
+  const photoOk = !audioOk ? false : (state.readingPhotoPreview && (state.readingPlaybackDataUrl.length + state.readingPhotoPreview.length) < 900000);
   try{
     await state.db.collection("submissions").add({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
@@ -2772,16 +2793,40 @@ async function submitGrammar(set){
 
 // ---------- STUDENT: MINE ----------
 function renderStudentMine(content){
-  const mine = state.submissions.filter(s => s.studentId === state.uid);
+  const cls = myClass();
+  const all = state.submissions.filter(s => s.studentId === state.uid);
+  // "This homework" = everything turned in since the last class session, so the
+  // list stays short and recent. Older ones are a tap away.
+  const {prev} = cls ? getClassSessionsAround(cls.schedule, new Date()) : {prev: null};
+  const winStart = prev ? prev.getTime() : 0;
+  const scoped = state.mineShowAll ? all : all.filter(s => s.createdAt >= winStart);
+  const filter = state.mineFilter || "all";
+  const mine = filter === "all" ? scoped : scoped.filter(s => s.type === filter);
+  const FILTERS = [["all","전체"],["writing","Sentence"],["speaking","Shadowing"],["voca","Voca"],["reading","Reading"],["grammar","Grammar"]];
+
   content.innerHTML = `
     <div class="card">
       <h2>내 제출물<span class="sub">${mine.length}건</span></h2>
+      <div class="tabs" style="margin-bottom:12px;">
+        ${FILTERS.map(([v,label]) => `<button class="tab-btn ${filter===v?"active":""}" data-minefilter="${v}">${label}</button>`).join("")}
+      </div>
+      <div class="tab-legend" style="margin:0 2px 12px;">
+        ${state.mineShowAll ? "지난 제출물까지 모두 보고 있어요" : (prev ? `이번 과제 기준: 지난 수업(${esc(fmtSessionDate(prev))}) 이후 제출한 것만 보여요` : "지금까지 제출한 것을 보여요")}
+        ${prev || state.mineShowAll ? `<a href="#" id="mine-toggle" style="color:var(--pine);text-decoration:underline;margin-left:6px;">${state.mineShowAll ? "이번 과제만 보기" : "지난 제출물도 보기"}</a>` : ""}
+      </div>
       <div id="mine-list"></div>
     </div>
   `;
+  content.querySelectorAll("[data-minefilter]").forEach(b => b.onclick = () => {
+    state.mineFilter = b.dataset.minefilter;
+    renderStudentMine(content);
+  });
+  const toggle = document.getElementById("mine-toggle");
+  if(toggle) toggle.onclick = e => { e.preventDefault(); state.mineShowAll = !state.mineShowAll; renderStudentMine(content); };
+
   const el = document.getElementById("mine-list");
   if(!mine.length){
-    el.innerHTML = `<div class="empty"><span class="big">🗒️</span>아직 제출한 과제가 없어요</div>`;
+    el.innerHTML = `<div class="empty"><span class="big">🗒️</span>${state.mineShowAll || !all.length ? "아직 제출한 과제가 없어요" : "이번 과제에는 아직 제출한 게 없어요"}</div>`;
     return;
   }
   el.innerHTML = mine.map(s => {
@@ -2798,6 +2843,7 @@ function renderStudentMine(content){
       </div>
     `;
   }).join("");
+  el.querySelectorAll("[data-fullimg]").forEach(img => img.onclick = () => showPhotoLightbox(img.dataset.fullimg));
 }
 
 // ---------- INIT ----------
