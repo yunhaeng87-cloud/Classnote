@@ -52,6 +52,12 @@
                           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teacherComment','teacherCommentAt']))
                       );
       }
+      match /submissionMedia/{id} {
+        allow read: if isSignedIn() && (myRole() == 'teacher' || resource.data.studentId == request.auth.uid);
+        allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid
+                      && request.auth.uid in get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.studentIds;
+        allow delete: if isSignedIn() && myRole() == 'teacher';
+      }
       match /vocab/{uid} {
         allow read: if isSignedIn();
         allow write: if isSignedIn() && request.auth.uid == uid;
@@ -378,6 +384,8 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 // 새 항목은 배열 맨 앞에 추가하세요 (날짜, 내용).
 const CHANGELOG = [
   { date: "2026-09-28", items: [
+    "선생님 화면이 느리던 문제 개선: 사진·녹음을 따로 저장해 필요할 때만 불러오도록 변경 (새 제출물부터 적용, 사진·녹음 각각 최대 약 950KB)",
+    "앱을 열 때 오래 걸리던 문제 개선 (학생은 본인 제출물만 불러오도록 변경)",
     "Voca 단어장에서 테스트 볼 단어를 골라서(체크) 시험 볼 수 있게 추가",
     "학생 '내 제출물'을 이번 과제(지난 수업 이후) 기준 최근 제출물만 보이게 하고, 종류별 필터와 지난 제출물 보기 추가",
     "녹음을 음성 전용 저용량으로 저장해 더 긴 녹음(약 3분 30초)도 저장되도록 개선",
@@ -568,7 +576,7 @@ const state = {
   uid: null, role: null, me: null,
   classes: [], homework: [], submissions: [], users: {}, grammarSets: [], notices: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
-  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null, mineFilter: "all", mineShowAll: false, vocaSelected: null,
+  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null, mineFilter: "all", mineShowAll: false, vocaSelected: null, loadError: false, mediaCache: {},
   ready: false, available: true, usersLoaded: false,
   authMode: "login", authError: "", authBusy: false, authUsernameDraft: "",
   writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false,
@@ -964,7 +972,11 @@ function render(){
     return;
   }
   if(!state.role){
-    if(state.usersLoaded){
+    if(state.usersLoaded && state.loadError){
+      root.innerHTML = `<div class="center-msg">데이터를 불러오지 못했어요.<br>인터넷 연결을 확인하고 다시 시도해 주세요.<br><br><button class="btn" id="load-retry" style="margin-top:14px;">다시 시도</button></div>`;
+      const rb = document.getElementById("load-retry");
+      if(rb) rb.onclick = () => location.reload();
+    }else if(state.usersLoaded){
       root.innerHTML = `<div class="center-msg">계정 정보를 찾을 수 없어요.<br>선생님에게 문의해주세요.<br><br><button class="btn" id="no-profile-logout" style="margin-top:14px;">로그아웃</button></div>`;
       const b = document.getElementById("no-profile-logout");
       if(b) b.onclick = logout;
@@ -1644,11 +1656,79 @@ function renderTeacherSubmissionsHub(content){
     });
     subListEl.querySelectorAll("[data-subdel]").forEach(b => b.onclick = async () => {
       if(!(await confirmDialog("이 제출물을 삭제할까요?"))) return;
-      try{ await state.db.doc(`submissions/${b.dataset.subdel}`).delete(); }
+      const target = state.submissions.find(x => x.id === b.dataset.subdel);
+      try{ await deleteSubmissionCascade(target || {id: b.dataset.subdel}); }
       catch(e){ notify("삭제에 실패했습니다."); }
     });
+    hydrateMedia(subListEl);
     subListEl.querySelectorAll("[data-fullimg]").forEach(img => img.onclick = () => showPhotoLightbox(img.dataset.fullimg));
   }
+}
+
+// Photos/audio live in their own documents (submissionMedia) instead of inside the
+// submission, so listing submissions stays light; they're fetched only when opened.
+const MEDIA_MAX = 950000; // chars per media doc (Firestore's limit is 1 MiB)
+async function saveSubmissionWithMedia(base, media){
+  const ref = state.db.collection("submissions").doc();
+  const out = {...base};
+  const saved = {audio: false, photo: false};
+  let inlineBudget = 850000; // fallback to the old "embed in the submission" way if media docs can't be written
+  const kinds = [
+    ["audio", media.audio, "audioDataUrl", "hasAudio", "audioTooLong"],
+    ["photo", media.photo, "photoDataUrl", "hasPhoto", "photoTooLarge"],
+  ];
+  for(const [kind, url, inlineKey, flagKey, tooBigKey] of kinds){
+    if(!url) continue;
+    if(url.length >= MEDIA_MAX){ out[tooBigKey] = true; continue; }
+    try{
+      await state.db.doc(`submissionMedia/${ref.id}_${kind}`).set({
+        studentId: state.uid, classId: base.classId || null, kind, dataUrl: url, createdAt: base.createdAt
+      });
+      out[flagKey] = true; saved[kind] = true;
+    }catch(e){
+      if(url.length < inlineBudget){ out[inlineKey] = url; inlineBudget -= url.length; saved[kind] = true; }
+      else out[tooBigKey] = true;
+    }
+  }
+  await ref.set(out);
+  return saved;
+}
+async function deleteSubmissionCascade(sub){
+  await state.db.doc(`submissions/${sub.id}`).delete();
+  for(const [flag, kind] of [["hasAudio","audio"],["hasPhoto","photo"]]){
+    if(sub[flag]){ try{ await state.db.doc(`submissionMedia/${sub.id}_${kind}`).delete(); }catch(e){} }
+  }
+}
+// Wire the "사진 보기 / 녹음 불러오기" buttons inside a container.
+function hydrateMedia(rootEl){
+  if(!rootEl) return;
+  rootEl.querySelectorAll("[data-loadmedia]").forEach(btn => {
+    btn.onclick = async () => {
+      const key = btn.dataset.loadmedia;
+      const label = btn.textContent;
+      btn.disabled = true; btn.textContent = "불러오는 중...";
+      try{
+        const snap = await state.db.doc(`submissionMedia/${key}`).get();
+        if(!snap.exists) throw new Error("missing");
+        const url = snap.data().dataUrl;
+        state.mediaCache[key] = url;
+        if(btn.dataset.kind === "photo"){
+          const img = document.createElement("img");
+          img.className = "photo-thumb"; img.src = url;
+          img.onclick = () => showPhotoLightbox(url);
+          btn.replaceWith(img);
+        }else{
+          const au = document.createElement("audio");
+          au.controls = true; au.src = url;
+          au.style.cssText = "width:100%;margin-top:8px;height:38px;";
+          btn.replaceWith(au);
+        }
+      }catch(e){
+        btn.disabled = false; btn.textContent = label;
+        notify("불러오지 못했어요. 잠시 후 다시 눌러주세요.");
+      }
+    };
+  });
 }
 
 function typeBadgeLabel(type){
@@ -1692,11 +1772,13 @@ function renderSubmissionBody(s){
       <div class="fb-wrap">${details}</div>
     `;
   }
+  const photoUrl = s.photoDataUrl || state.mediaCache[s.id + "_photo"] || "";
+  const audioUrl = s.audioDataUrl || state.mediaCache[s.id + "_audio"] || "";
   return `
-    ${s.photoDataUrl ? `<img class="photo-thumb" src="${s.photoDataUrl}" data-fullimg="${s.photoDataUrl}">` : ""}
-    ${!s.photoDataUrl && s.photoTooLarge ? `<div style="color:var(--coral);font-size:12.5px;margin-top:6px;">⚠️ 사진 없음 — 사진이 너무 커서 저장되지 않았어요 (텍스트/첨삭 결과는 있어요)</div>` : ""}
-    ${s.audioDataUrl ? `<audio controls src="${s.audioDataUrl}" style="width:100%;margin-top:8px;height:38px;"></audio>` : ""}
-    ${!s.audioDataUrl && s.audioTooLong ? `<div style="color:var(--coral);font-size:12.5px;margin-top:6px;">⚠️ 녹음 파일 없음 — 녹음이 너무 길어서 저장되지 않았어요 (발음 판정 결과는 있어요)</div>` : ""}
+    ${photoUrl ? `<img class="photo-thumb" src="${photoUrl}" data-fullimg="${photoUrl}">` : (s.hasPhoto ? `<button class="btn ghost small" type="button" data-loadmedia="${s.id}_photo" data-kind="photo" style="margin-top:8px;">🖼️ 사진 보기</button>` : "")}
+    ${!photoUrl && !s.hasPhoto && s.photoTooLarge ? `<div style="color:var(--coral);font-size:12.5px;margin-top:6px;">⚠️ 사진 없음 — 사진이 너무 커서 저장되지 않았어요 (텍스트/첨삭 결과는 있어요)</div>` : ""}
+    ${audioUrl ? `<audio controls src="${audioUrl}" style="width:100%;margin-top:8px;height:38px;"></audio>` : (s.hasAudio ? `<button class="btn ghost small" type="button" data-loadmedia="${s.id}_audio" data-kind="audio" style="margin-top:8px;">▶ 녹음 불러오기</button>` : "")}
+    ${!audioUrl && !s.hasAudio && s.audioTooLong ? `<div style="color:var(--coral);font-size:12.5px;margin-top:6px;">⚠️ 녹음 파일 없음 — 녹음이 너무 길어서 저장되지 않았어요 (발음 판정 결과는 있어요)</div>` : ""}
     <div class="stext">${esc(s.text)}</div>
     ${s.originalText && s.originalText !== s.text ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">원래 문장: ${esc(s.originalText)}</div>` : ""}
     ${s.targetText ? `<div class="stext" style="opacity:.6;font-size:12px;margin-top:4px;">목표 문장: ${esc(s.targetText)}</div>` : ""}
@@ -1968,8 +2050,6 @@ async function submitWritingPhoto(){
   const cls = myClass();
   const btn = document.getElementById("writing-photo-submit");
   btn.disabled = true; btn.textContent = "제출 중...";
-  // Firestore documents cap out at 1 MiB; leave headroom for the other fields.
-  const photoOk = state.writingPhotoPreview && state.writingPhotoPreview.length < 700000;
   // Build the "clean" (grammar-corrected) version of what the student wrote —
   // this becomes the sentence they'll shadow later, so they practice
   // pronouncing correct English rather than their own mistakes.
@@ -1978,13 +2058,12 @@ async function submitWritingPhoto(){
     ? parsedFeedback.items.map(it => it.corrected || it.original || "").filter(Boolean).join("\n")
     : transcript;
   try{
-    await state.db.collection("submissions").add({
+    const saved = await saveSubmissionWithMedia({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
       type: "writing", text: transcript, feedback: state.writingPhotoFeedback, shadowingText,
-      photoDataUrl: photoOk ? state.writingPhotoPreview : null,
-      photoTooLarge: !photoOk,
       createdAt: Date.now()
-    });
+    }, { photo: state.writingPhotoPreview });
+    const photoOk = saved.photo;
     state.writingPhotoPreview = null; state.writingPhotoBase64 = null; state.writingPhotoMime = null;
     state.writingPhotoFeedback = null; state.writingPhotoTranscript = null;
     notify(photoOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (사진이 커서 사진 없이 텍스트만 저장됐어요)");
@@ -2181,17 +2260,15 @@ async function submitSpeaking(){
   const btn = document.getElementById("speaking-submit");
   btn.disabled = true; btn.textContent = "제출 중...";
   const storySub = myLatestStorySubmission();
-  // Firestore documents cap out at 1 MiB; keep a safe margin for the other fields.
-  const audioOk = state.speakingPlaybackDataUrl && state.speakingPlaybackDataUrl.length < 850000;
+  let audioOk = false;
   try{
-    await state.db.collection("submissions").add({
+    const saved = await saveSubmissionWithMedia({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
       type: "speaking", text: transcript, targetText: (storySub && storySub.shadowingText) || null,
       feedback: state.speakingFeedback,
-      audioDataUrl: audioOk ? state.speakingPlaybackDataUrl : null,
-      audioTooLong: !audioOk,
       createdAt: Date.now()
-    });
+    }, { audio: state.speakingPlaybackDataUrl });
+    audioOk = saved.audio;
     state.speakingTranscript = ""; state.speakingFeedback = null; state.speakingError = null;
     state.speakingAudioBase64 = null; state.speakingAudioMime = null; state.speakingPlaybackDataUrl = null; state.speakingPlaybackMime = null;
     if(storySub){
@@ -2713,19 +2790,15 @@ async function submitReadingPron(){
   const btn = document.getElementById("reading-submit");
   btn.disabled = true; btn.textContent = "제출 중...";
   const target = (state.readingExtractedWords || []).join("\n");
-  const audioOk = state.readingPlaybackDataUrl && state.readingPlaybackDataUrl.length < 850000;
-  const photoOk = !audioOk ? false : (state.readingPhotoPreview && (state.readingPlaybackDataUrl.length + state.readingPhotoPreview.length) < 900000);
+  let audioOk = false;
   try{
-    await state.db.collection("submissions").add({
+    const saved = await saveSubmissionWithMedia({
       classId: cls ? cls.id : null, homeworkId: hw ? hw.id : null, studentId: state.uid,
       type: "reading", text: transcript, targetText: target || null,
       feedback: state.readingFeedback,
-      audioDataUrl: audioOk ? state.readingPlaybackDataUrl : null,
-      audioTooLong: !audioOk,
-      photoDataUrl: photoOk ? state.readingPhotoPreview : null,
-      photoTooLarge: !photoOk,
       createdAt: Date.now()
-    });
+    }, { audio: state.readingPlaybackDataUrl, photo: state.readingPhotoPreview });
+    audioOk = saved.audio;
     resetReadingPhoto();
     notify(audioOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (녹음이 길어서 음성 없이 텍스트만 저장됐어요)");
   }catch(e){ notify("제출에 실패했습니다."); }
@@ -2895,6 +2968,7 @@ function renderStudentMine(content){
     `;
   }).join("");
   el.querySelectorAll("[data-fullimg]").forEach(img => img.onclick = () => showPhotoLightbox(img.dataset.fullimg));
+  hydrateMedia(el);
 }
 
 // ---------- INIT ----------
@@ -2916,7 +2990,7 @@ async function cleanupOldSubmissions(){
   const cutoff = Date.now() - SUBMISSION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
   const old = state.submissions.filter(s => s.createdAt && s.createdAt < cutoff);
   for(const s of old){
-    try{ await state.db.doc(`submissions/${s.id}`).delete(); }catch(e){}
+    try{ await deleteSubmissionCascade(s); }catch(e){}
   }
 }
 
@@ -2929,6 +3003,11 @@ function startFirestoreListeners(){
     state.users = map;
     state.usersLoaded = true;
     syncProfileFromUsers();
+    startSubmissionsListener();
+    render();
+  }, () => {
+    state.usersLoaded = true;
+    state.loadError = true;
     render();
   }));
   unsubscribeFns.push(state.db.collection("classes").onSnapshot(snap => {
@@ -2939,11 +3018,6 @@ function startFirestoreListeners(){
     state.homework = snap.docs.map(d => ({id: d.id, ...d.data()}));
     render();
   }));
-  unsubscribeFns.push(state.db.collection("submissions").orderBy("createdAt", "desc").onSnapshot(snap => {
-    state.submissions = snap.docs.map(d => ({id: d.id, ...d.data()}));
-    render();
-    cleanupOldSubmissions();
-  }));
   unsubscribeFns.push(state.db.collection("grammarSets").orderBy("createdAt", "desc").onSnapshot(snap => {
     state.grammarSets = snap.docs.map(d => ({id: d.id, ...d.data()}));
     render();
@@ -2953,10 +3027,27 @@ function startFirestoreListeners(){
     render();
   }));
 }
+// Submissions carry photos/audio (up to ~850KB each), so downloading everyone's
+// on every login made the app slow to open. Students now only fetch their own;
+// teachers still need the whole class's.
+let submissionsListenerStarted = false;
+function startSubmissionsListener(){
+  if(submissionsListenerStarted || !state.role || !state.uid) return;
+  submissionsListenerStarted = true;
+  const coll = state.db.collection("submissions");
+  const q = state.role === "teacher" ? coll : coll.where("studentId", "==", state.uid);
+  unsubscribeFns.push(q.onSnapshot(snap => {
+    state.submissions = snap.docs.map(d => ({id: d.id, ...d.data()}))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    render();
+    cleanupOldSubmissions();
+  }, () => { render(); }));
+}
 function stopFirestoreListeners(){
   unsubscribeFns.forEach(fn => { try{ fn(); }catch(e){} });
   unsubscribeFns = [];
   listenersStarted = false;
+  submissionsListenerStarted = false;
   cleanupDone = false;
 }
 
@@ -2973,6 +3064,7 @@ async function init(){
       state.vocaTestActive = false; state.vocaTestDone = false; state.vocaTestAnswers = [];
       state.grammarSets = []; state.grammarDraftProblems = []; state.grammarAnswers = {}; state.grammarResult = null; state.grammarLastSetId = null;
       state.notices = [];
+      state.mediaCache = {};
       state.usersLoaded = false;
     }
     state.ready = true;
