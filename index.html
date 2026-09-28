@@ -384,6 +384,7 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 // 새 항목은 배열 맨 앞에 추가하세요 (날짜, 내용).
 const CHANGELOG = [
   { date: "2026-09-28", items: [
+    "Sentence에서 'AI 첨삭받고 제출하기' 버튼 하나로 첨삭과 제출이 한 번에 되도록 변경 (첨삭 결과는 제출 후에도 화면에 남음)",
     "선생님 화면이 느리던 문제 개선: 사진·녹음을 따로 저장해 필요할 때만 불러오도록 변경 (새 제출물부터 적용, 사진·녹음 각각 최대 약 950KB)",
     "앱을 열 때 오래 걸리던 문제 개선 (학생은 본인 제출물만 불러오도록 변경)",
     "Voca 단어장에서 테스트 볼 단어를 골라서(체크) 시험 볼 수 있게 추가",
@@ -579,7 +580,7 @@ const state = {
   selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null, mineFilter: "all", mineShowAll: false, vocaSelected: null, loadError: false, mediaCache: {},
   ready: false, available: true, usersLoaded: false,
   authMode: "login", authError: "", authBusy: false, authUsernameDraft: "",
-  writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false,
+  writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false, writingSubmitted: false, writingSubmitting: false,
   writingPhotoError: null, writingPhotoFeedback: null, writingPhotoTranscript: null, writingPhotoCorrected: null,
   speakingTranscript: "", speakingRecording: false, speakingFeedback: null, speakingBusy: false, speakingError: null,
   speakingAudioBase64: null, speakingAudioMime: null,
@@ -1947,8 +1948,8 @@ function renderStudentWriting(content){
       </div>
       ${state.writingPhotoPreview ? `
         <div class="btn-row" style="margin-top:12px;">
-          <button class="btn" id="writing-photo-check" ${state.writingPhotoBusy?"disabled":""}>${state.writingPhotoBusy?"AI가 사진을 읽는 중...":"사진 첨삭 받기"}</button>
-          <button class="btn secondary small" id="writing-photo-clear" type="button">사진 지우기</button>
+          ${state.writingSubmitted ? "" : `<button class="btn" id="writing-photo-check" ${(state.writingPhotoBusy || state.writingSubmitting) ? "disabled" : ""}>${state.writingPhotoBusy ? "AI가 사진을 읽는 중..." : (state.writingSubmitting ? "제출 중..." : "AI 첨삭받고 제출하기")}</button>`}
+          <button class="btn secondary small" id="writing-photo-clear" type="button">${state.writingSubmitted ? "새 작문 올리기" : "사진 지우기"}</button>
         </div>
       ` : ""}
       <div id="writing-photo-feedback-wrap"></div>
@@ -1959,6 +1960,7 @@ function renderStudentWriting(content){
   if(clearBtn) clearBtn.onclick = () => {
     state.writingPhotoPreview = null; state.writingPhotoBase64 = null; state.writingPhotoMime = null;
     state.writingPhotoFeedback = null; state.writingPhotoError = null; state.writingPhotoTranscript = null;
+    state.writingSubmitted = false; state.writingSubmitting = false;
     renderStudentWriting(document.getElementById("content"));
   };
   const photoCheckBtn = document.getElementById("writing-photo-check");
@@ -1973,11 +1975,15 @@ function renderStudentWriting(content){
     photoWrap.innerHTML = `
       ${state.writingPhotoTranscript ? `<div class="transcript-box">AI가 읽은 내용:<br>${esc(state.writingPhotoTranscript)}</div>` : ""}
       ${renderFeedbackBlock(state.writingPhotoFeedback)}
-      <div class="btn-row" style="margin-top:14px;">
-        <button class="btn" id="writing-photo-submit">선생님께 제출하기</button>
-      </div>
+      ${state.writingSubmitted
+        ? `<div style="margin-top:14px;padding:10px 12px;border-radius:9px;background:var(--paper-2);border-left:3px solid var(--pine);font-size:13px;font-weight:600;color:var(--pine);">✅ 제출 완료! 선생님이 확인하실 수 있어요.</div>`
+        : (state.writingSubmitting
+          ? `<div class="thinking" style="margin-top:14px;">선생님께 제출하는 중...</div>`
+          : `<div class="btn-row" style="margin-top:14px;"><button class="btn" id="writing-photo-submit">선생님께 제출하기</button></div>
+             <p style="font-size:12px;color:var(--ink-soft);margin-top:6px;">자동 제출이 되지 않았어요. 버튼을 눌러 제출해 주세요.</p>`)}
     `;
-    document.getElementById("writing-photo-submit").onclick = submitWritingPhoto;
+    const manualSubmit = document.getElementById("writing-photo-submit");
+    if(manualSubmit) manualSubmit.onclick = submitWritingPhoto;
   }
 }
 
@@ -1990,6 +1996,7 @@ async function onWritingPhotoSelected(e){
     state.writingPhotoBase64 = base64;
     state.writingPhotoMime = mimeType;
     state.writingPhotoFeedback = null; state.writingPhotoError = null; state.writingPhotoTranscript = null;
+    state.writingSubmitted = false; state.writingSubmitting = false;
   }catch(err){
     notify("사진을 불러오지 못했어요. 다시 시도해 주세요.");
   }
@@ -2041,15 +2048,21 @@ async function runWritingPhotoCheck(){
     state.writingPhotoError = (e && e.message) ? e.message : String(e);
   }
   state.writingPhotoBusy = false;
-  renderStudentWriting(document.getElementById("content"));
+  if(state.view === "student-writing") renderStudentWriting(document.getElementById("content"));
+  // Pressing the button both grades and submits — but only when the AI answer is usable.
+  const okParsed = state.writingPhotoError ? null : extractJsonLoose(state.writingPhotoFeedback);
+  if(okParsed && Array.isArray(okParsed.items) && okParsed.items.length){
+    await submitWritingPhoto();
+  }
 }
 
 async function submitWritingPhoto(){
+  if(state.writingSubmitting || state.writingSubmitted) return;
   const transcript = state.writingPhotoTranscript || "";
   const hw = myLatestHomework();
   const cls = myClass();
-  const btn = document.getElementById("writing-photo-submit");
-  btn.disabled = true; btn.textContent = "제출 중...";
+  state.writingSubmitting = true;
+  if(state.view === "student-writing") renderStudentWriting(document.getElementById("content"));
   // Build the "clean" (grammar-corrected) version of what the student wrote —
   // this becomes the sentence they'll shadow later, so they practice
   // pronouncing correct English rather than their own mistakes.
@@ -2063,12 +2076,11 @@ async function submitWritingPhoto(){
       type: "writing", text: transcript, feedback: state.writingPhotoFeedback, shadowingText,
       createdAt: Date.now()
     }, { photo: state.writingPhotoPreview });
-    const photoOk = saved.photo;
-    state.writingPhotoPreview = null; state.writingPhotoBase64 = null; state.writingPhotoMime = null;
-    state.writingPhotoFeedback = null; state.writingPhotoTranscript = null;
-    notify(photoOk ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (사진이 커서 사진 없이 텍스트만 저장됐어요)");
-  }catch(e){ notify("제출에 실패했습니다. (사진이 너무 클 수 있어요)"); }
-  renderStudentWriting(document.getElementById("content"));
+    state.writingSubmitted = true;
+    notify(saved.photo ? "제출 완료! 선생님이 확인하실 수 있어요." : "제출 완료! (사진이 커서 사진 없이 텍스트만 저장됐어요)");
+  }catch(e){ notify("제출에 실패했습니다. 아래 버튼으로 다시 제출해 주세요."); }
+  state.writingSubmitting = false;
+  if(state.view === "student-writing") renderStudentWriting(document.getElementById("content"));
 }
 
 // ---------- STUDENT: SPEAKING (shadowing) ----------
