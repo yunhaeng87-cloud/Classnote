@@ -378,6 +378,7 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 // 새 항목은 배열 맨 앞에 추가하세요 (날짜, 내용).
 const CHANGELOG = [
   { date: "2026-09-28", items: [
+    "Voca 단어장에서 테스트 볼 단어를 골라서(체크) 시험 볼 수 있게 추가",
     "학생 '내 제출물'을 이번 과제(지난 수업 이후) 기준 최근 제출물만 보이게 하고, 종류별 필터와 지난 제출물 보기 추가",
     "녹음을 음성 전용 저용량으로 저장해 더 긴 녹음(약 3분 30초)도 저장되도록 개선",
     "선생님이 제출물마다 피드백을 남기고, 학생은 '내 제출물'에서 확인할 수 있게 추가",
@@ -567,7 +568,7 @@ const state = {
   uid: null, role: null, me: null,
   classes: [], homework: [], submissions: [], users: {}, grammarSets: [], notices: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
-  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null, mineFilter: "all", mineShowAll: false,
+  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null, mineFilter: "all", mineShowAll: false, vocaSelected: null,
   ready: false, available: true, usersLoaded: false,
   authMode: "login", authError: "", authBusy: false, authUsernameDraft: "",
   writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false,
@@ -2211,6 +2212,7 @@ async function loadVocaWords(){
   }catch(e){
     state.vocaWords = [];
   }
+  state.vocaSelected = null;
   state.vocaWordsLoaded = true;
   render();
 }
@@ -2221,6 +2223,13 @@ async function saveVocaWords(){
   }catch(e){
     notify("단어 저장에 실패했습니다.");
   }
+}
+
+// Which words go into the test? null = all of them (default); otherwise a Set of indices.
+function vocaSelectedIdx(){
+  const n = state.vocaWords.length;
+  if(state.vocaSelected === null) return Array.from({length: n}, (_, i) => i);
+  return Array.from(state.vocaSelected).filter(i => i >= 0 && i < n).sort((a, b) => a - b);
 }
 
 function renderStudentVoca(content){
@@ -2254,6 +2263,13 @@ function renderStudentVoca(content){
     </div>
     <div class="card">
       <h2>내 단어장<span class="sub">${state.vocaWords.length}개</span></h2>
+      ${state.vocaWords.length ? `
+        <div class="btn-row" style="margin-bottom:8px;align-items:center;">
+          <button class="btn ghost small" id="voca-sel-all" type="button">전체 선택</button>
+          <button class="btn ghost small" id="voca-sel-none" type="button">전체 해제</button>
+          <span class="tab-legend" id="voca-sel-count" style="margin:0;"></span>
+        </div>
+      ` : ""}
       <div id="voca-word-list"></div>
       <div class="btn-row" style="margin-top:14px;">
         ${state.vocaWords.length ? `<button class="btn" id="voca-start-test">테스트 시작</button>` : ""}
@@ -2268,6 +2284,7 @@ function renderStudentVoca(content){
     const kr = document.getElementById("voca-kr").value.trim();
     if(!en || !kr){ notify("영어와 뜻을 모두 입력해주세요."); return; }
     state.vocaWords.push({ english: en, meaning: kr });
+    if(state.vocaSelected !== null) state.vocaSelected.add(state.vocaWords.length - 1);
     await saveVocaWords();
     renderStudentVoca(document.getElementById("content"));
   };
@@ -2276,18 +2293,49 @@ function renderStudentVoca(content){
   if(!state.vocaWords.length){
     listEl.innerHTML = `<div class="empty"><span class="big">📖</span>아직 등록한 단어가 없어요</div>`;
   }else{
+    const selNow = new Set(vocaSelectedIdx());
     listEl.innerHTML = state.vocaWords.map((w, i) => `
       <div class="word-row">
+        <input type="checkbox" data-wsel="${i}" ${selNow.has(i) ? "checked" : ""} style="width:auto;flex-shrink:0;" aria-label="테스트에 포함">
         <span class="en">${esc(w.english)}</span>
         <span class="kr">${esc(w.meaning)}</span>
         <button class="btn ghost small" data-wdel="${i}">삭제</button>
       </div>
     `).join("");
     listEl.querySelectorAll("[data-wdel]").forEach(b => b.onclick = async () => {
-      state.vocaWords.splice(Number(b.dataset.wdel), 1);
+      const di = Number(b.dataset.wdel);
+      if(state.vocaSelected !== null){
+        state.vocaSelected = new Set(Array.from(state.vocaSelected).filter(j => j !== di).map(j => j > di ? j - 1 : j));
+      }
+      state.vocaWords.splice(di, 1);
       await saveVocaWords();
       renderStudentVoca(document.getElementById("content"));
     });
+    // Update the count / start button in place so typed text in the add form isn't lost.
+    const refreshSel = () => {
+      const n = vocaSelectedIdx().length;
+      const cnt = document.getElementById("voca-sel-count");
+      if(cnt) cnt.textContent = `테스트 볼 단어 ${n} / ${state.vocaWords.length}개 선택`;
+      const sb = document.getElementById("voca-start-test");
+      if(sb){ sb.textContent = n ? `테스트 시작 (${n}개)` : "테스트 시작"; sb.disabled = n === 0; }
+    };
+    listEl.querySelectorAll("[data-wsel]").forEach(cb => cb.onchange = () => {
+      const set = new Set(vocaSelectedIdx());
+      const i = Number(cb.dataset.wsel);
+      if(cb.checked) set.add(i); else set.delete(i);
+      state.vocaSelected = set;
+      refreshSel();
+    });
+    const setAll = (on) => {
+      listEl.querySelectorAll("[data-wsel]").forEach(cb => { cb.checked = on; });
+      state.vocaSelected = on ? null : new Set();
+      refreshSel();
+    };
+    const allBtn = document.getElementById("voca-sel-all");
+    const noneBtn = document.getElementById("voca-sel-none");
+    if(allBtn) allBtn.onclick = () => setAll(true);
+    if(noneBtn) noneBtn.onclick = () => setAll(false);
+    refreshSel();
   }
 
   const startBtn = document.getElementById("voca-start-test");
@@ -2297,6 +2345,7 @@ function renderStudentVoca(content){
   if(clearAllBtn) clearAllBtn.onclick = async () => {
     if(!(await confirmDialog("단어장을 전부 삭제할까요? 되돌릴 수 없어요."))) return;
     state.vocaWords = [];
+    state.vocaSelected = null;
     await saveVocaWords();
     renderStudentVoca(document.getElementById("content"));
   };
@@ -2305,7 +2354,9 @@ function renderStudentVoca(content){
 }
 
 function startVocaTest(){
-  const shuffled = [...state.vocaWords].sort(() => Math.random() - 0.5);
+  const picked = vocaSelectedIdx().map(i => state.vocaWords[i]);
+  if(!picked.length){ notify("테스트 볼 단어를 하나 이상 선택해주세요."); return; }
+  const shuffled = [...picked].sort(() => Math.random() - 0.5);
   state.vocaTestQuestions = shuffled.map(w => ({
     english: w.english,
     meaning: w.meaning,
