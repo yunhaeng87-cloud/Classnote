@@ -385,7 +385,7 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 const CHANGELOG = [
   { date: "2026-10-02", items: [
     "제출 기준을 '다음 수업까지'에서 '매일(오늘 기준)'로 변경 — 제출 현황, 최근 5회 표, 탭 ✓ 표시, 내 제출물 모두 적용",
-    "학생 화면에도 선생님과 동일한 최근 5일 제출 현황 표 + 미제출 명단이 보이도록 추가",
+    "학생 화면에 본인의 최근 5일 제출 현황을 추가 (다른 학생의 제출 여부는 보이지 않음)",
     "Voca 단어장이 많을 때 한 화면에 전부 뜨지 않도록 50개씩 페이지로 나눠 보이게 추가",
     "Sentence에서 'AI 첨삭받고 제출하기' 버튼 하나로 첨삭과 제출이 한 번에 되도록 변경 (첨삭 결과는 제출 후에도 화면에 남음)",
     "선생님 화면이 느리던 문제 개선: 사진·녹음을 따로 저장해 필요할 때만 불러오도록 변경 (새 제출물부터 적용, 사진·녹음 각각 최대 약 950KB)",
@@ -580,7 +580,7 @@ const state = {
   uid: null, role: null, me: null,
   classes: [], homework: [], submissions: [], users: {}, grammarSets: [], notices: [],
   view: null, // 'teacher-classes' | 'teacher-homework' | 'teacher-submissions' | 'student-homework' | 'student-writing' | 'student-speaking' | 'student-mine'
-  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null, mineFilter: "all", mineShowAll: false, vocaSelected: null, loadError: false, vocaPage: 0, classTodaySubs: [], mediaCache: {},
+  selectedClassId: null, editingHomeworkId: null, editingClassId: null, teacherSubFilter: "writing", subsClassId: null, mineFilter: "all", mineShowAll: false, vocaSelected: null, loadError: false, vocaPage: 0, mediaCache: {},
   ready: false, available: true, usersLoaded: false,
   authMode: "login", authError: "", authBusy: false, authUsernameDraft: "",
   writingPhotoPreview: null, writingPhotoBase64: null, writingPhotoMime: null, writingPhotoBusy: false, writingSubmitted: false, writingSubmitting: false,
@@ -1948,42 +1948,21 @@ function myLatestStorySubmission(){
 }
 
 // ---------- STUDENT: WRITING (Story) ----------
-// A small "who's submitted" live feed for the student's own class, scoped to
-// the last 5 days (not the whole history) so it stays light — same window
-// the teacher's attendance table uses, so both look identical.
-let classTodayUnsub = null;
-let classTodayKey = null;
-function ensureClassTodayListener(cls){
-  if(!cls || !state.db) return;
-  const recentDays = getRecentDays(5);
-  const windowStart = recentDays[recentDays.length - 1].getTime();
-  const key = cls.id + ":" + windowStart;
-  if(classTodayKey === key) return;
-  if(classTodayUnsub){ try{ classTodayUnsub(); }catch(e){} }
-  classTodayKey = key;
-  state.classTodaySubs = [];
-  classTodayUnsub = state.db.collection("submissions")
-    .where("classId", "==", cls.id)
-    .where("createdAt", ">=", windowStart)
-    .onSnapshot(snap => {
-      state.classTodaySubs = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      render();
-    }, () => {});
-}
+// Students only ever see their own row, built straight from state.submissions
+// (already their own full history, loaded with no extra query/index needed —
+// showing classmates' names/status to each other isn't appropriate anyway).
+function ensureClassTodayListener(cls){ /* no-op: no longer needs a separate query */ }
 function classStatusCardHTML(cls, type){
-  const rosterIds = (cls && cls.studentIds) || [];
-  if(!rosterIds.length) return "";
-  const subsForType = state.classTodaySubs.filter(s => s.type === type);
+  if(!cls) return "";
+  const subsForType = state.submissions.filter(s => s.type === type && s.studentId === state.uid && s.classId === cls.id);
   const todayStart = todayStartMs();
-  const submittedIds = new Set(subsForType.filter(s => s.createdAt >= todayStart).map(s => s.studentId));
-  const missingNames = rosterIds.filter(id => !submittedIds.has(id)).map(nameOf);
+  const submittedToday = subsForType.some(s => s.createdAt >= todayStart);
   return `
     <div class="card">
-      <h2>최근 5일 제출 현황<span class="sub">(${esc(typeBadgeLabel(type))})</span></h2>
-      ${attendanceTableHTML(rosterIds, subsForType)}
+      <h2>최근 5일 내 제출 현황<span class="sub">(${esc(typeBadgeLabel(type))})</span></h2>
+      ${attendanceTableHTML([state.uid], subsForType)}
       <div class="sub-status" style="margin-top:14px;margin-bottom:0;">
-        오늘(${fmtDateOnly(new Date())}) 제출 현황: <span class="count">${rosterIds.filter(id => submittedIds.has(id)).length} / ${rosterIds.length}명</span> 제출함
-        ${missingNames.length ? `<div class="missing">미제출: ${missingNames.map(esc).join(", ")}</div>` : ""}
+        오늘(${fmtDateOnly(new Date())}): ${submittedToday ? `<span class="count">제출 완료 ✓</span>` : `<span style="color:var(--coral);font-weight:700;">아직 제출 전이에요</span>`}
       </div>
     </div>
   `;
@@ -3178,9 +3157,6 @@ async function init(){
       state.grammarSets = []; state.grammarDraftProblems = []; state.grammarAnswers = {}; state.grammarResult = null; state.grammarLastSetId = null;
       state.notices = [];
       state.mediaCache = {};
-      state.classTodaySubs = [];
-      if(classTodayUnsub){ try{ classTodayUnsub(); }catch(e){} }
-      classTodayUnsub = null; classTodayKey = null;
       state.usersLoaded = false;
     }
     state.ready = true;
