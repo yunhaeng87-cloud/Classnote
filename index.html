@@ -385,7 +385,7 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 const CHANGELOG = [
   { date: "2026-10-02", items: [
     "제출 기준을 '다음 수업까지'에서 '매일(오늘 기준)'로 변경 — 제출 현황, 최근 5회 표, 탭 ✓ 표시, 내 제출물 모두 적용",
-    "학생 화면에도 선생님처럼 오늘 우리 반 제출 현황(제출/미제출 명단)이 보이도록 추가",
+    "학생 화면에도 선생님과 동일한 최근 5일 제출 현황 표 + 미제출 명단이 보이도록 추가",
     "Voca 단어장이 많을 때 한 화면에 전부 뜨지 않도록 50개씩 페이지로 나눠 보이게 추가",
     "Sentence에서 'AI 첨삭받고 제출하기' 버튼 하나로 첨삭과 제출이 한 번에 되도록 변경 (첨삭 결과는 제출 후에도 화면에 남음)",
     "선생님 화면이 느리던 문제 개선: 사진·녹음을 따로 저장해 필요할 때만 불러오도록 변경 (새 제출물부터 적용, 사진·녹음 각각 최대 약 950KB)",
@@ -747,6 +747,36 @@ function getRecentDays(count){
     days.push(d);
   }
   return days;
+}
+// Shared by the teacher hub and the student status card so both look identical.
+function attendanceTableHTML(rosterIds, subsForType){
+  if(!rosterIds.length) return `<div class="empty" style="padding:16px;"><span class="big">🗓️</span>배정된 학생이 없어요</div>`;
+  const recentDays = getRecentDays(5); // newest (today) first
+  // windowEnd[i]: start of the day right after recentDays[i] (older index =
+  // later date, since the array is newest-first); for today (i=0) the
+  // cutoff is "now" since today isn't over yet.
+  const windowEnds = recentDays.map((d, i) => i === 0 ? new Date() : recentDays[i-1]);
+  return `
+    <div style="overflow-x:auto;">
+    <table class="attend-table">
+      <thead><tr>
+        <th>학생</th>
+        ${recentDays.map(d => `<th>${d.getMonth()+1}/${d.getDate()}(${DAYS[d.getDay()]})</th>`).join("")}
+      </tr></thead>
+      <tbody>
+        ${rosterIds.map(id => `
+          <tr>
+            <td class="name">${esc(nameOf(id))}</td>
+            ${recentDays.map((d, i) => {
+              const got = subsForType.some(sub => sub.studentId === id && sub.createdAt >= d.getTime() && sub.createdAt < windowEnds[i].getTime());
+              return `<td class="${got?"yes":"no"}">${got?"✓":"✗"}</td>`;
+            }).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+    </div>
+  `;
 }
 // Most recent `count` PAST class sessions (newest first), skipping holidays —
 // used to build the "last 5 classes, who submitted" table.
@@ -1585,38 +1615,7 @@ function renderTeacherSubmissionsHub(content){
   // rows, ✓/✗ per session based on whether they submitted within that
   // session's window (up to the following session).
   const attendEl = document.getElementById("attend-table");
-  if(attendEl){
-    const recentSessions = getRecentDays(5); // newest (today) first
-    if(!rosterIds.length){
-      attendEl.innerHTML = `<div class="empty" style="padding:16px;"><span class="big">🗓️</span>배정된 학생이 없어요</div>`;
-    }else{
-      // windowEnd[i]: start of the day right after recentSessions[i] (older
-      // index = later date, since the array is newest-first); for today
-      // (i=0) the cutoff is "now" since today isn't over yet.
-      const windowEnds = recentSessions.map((s, i) => i === 0 ? new Date() : recentSessions[i-1]);
-      attendEl.innerHTML = `
-        <div style="overflow-x:auto;">
-        <table class="attend-table">
-          <thead><tr>
-            <th>학생</th>
-            ${recentSessions.map(s => `<th>${s.getMonth()+1}/${s.getDate()}(${DAYS[s.getDay()]})</th>`).join("")}
-          </tr></thead>
-          <tbody>
-            ${rosterIds.map(id => `
-              <tr>
-                <td class="name">${esc(nameOf(id))}</td>
-                ${recentSessions.map((s, i) => {
-                  const got = allTypeSubs.some(sub => sub.studentId === id && sub.createdAt >= s.getTime() && sub.createdAt < windowEnds[i].getTime());
-                  return `<td class="${got?"yes":"no"}">${got?"✓":"✗"}</td>`;
-                }).join("")}
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-        </div>
-      `;
-    }
-  }
+  if(attendEl) attendEl.innerHTML = attendanceTableHTML(rosterIds, allTypeSubs);
 
   // Checked daily: "today" (local midnight to now) is the window the teacher
   // cares about for "who hasn't turned it in yet".
@@ -1949,21 +1948,23 @@ function myLatestStorySubmission(){
 }
 
 // ---------- STUDENT: WRITING (Story) ----------
-// A small "who's submitted today" live feed for the student's own class,
-// scoped to today only (not the whole history) so it stays light.
+// A small "who's submitted" live feed for the student's own class, scoped to
+// the last 5 days (not the whole history) so it stays light — same window
+// the teacher's attendance table uses, so both look identical.
 let classTodayUnsub = null;
 let classTodayKey = null;
 function ensureClassTodayListener(cls){
   if(!cls || !state.db) return;
-  const dayStart = todayStartMs();
-  const key = cls.id + ":" + dayStart;
+  const recentDays = getRecentDays(5);
+  const windowStart = recentDays[recentDays.length - 1].getTime();
+  const key = cls.id + ":" + windowStart;
   if(classTodayKey === key) return;
   if(classTodayUnsub){ try{ classTodayUnsub(); }catch(e){} }
   classTodayKey = key;
   state.classTodaySubs = [];
   classTodayUnsub = state.db.collection("submissions")
     .where("classId", "==", cls.id)
-    .where("createdAt", ">=", dayStart)
+    .where("createdAt", ">=", windowStart)
     .onSnapshot(snap => {
       state.classTodaySubs = snap.docs.map(d => ({id: d.id, ...d.data()}));
       render();
@@ -1972,11 +1973,15 @@ function ensureClassTodayListener(cls){
 function classStatusCardHTML(cls, type){
   const rosterIds = (cls && cls.studentIds) || [];
   if(!rosterIds.length) return "";
-  const submittedIds = new Set(state.classTodaySubs.filter(s => s.type === type).map(s => s.studentId));
+  const subsForType = state.classTodaySubs.filter(s => s.type === type);
+  const todayStart = todayStartMs();
+  const submittedIds = new Set(subsForType.filter(s => s.createdAt >= todayStart).map(s => s.studentId));
   const missingNames = rosterIds.filter(id => !submittedIds.has(id)).map(nameOf);
   return `
     <div class="card">
-      <div class="sub-status" style="margin-bottom:0;">
+      <h2>최근 5일 제출 현황<span class="sub">(${esc(typeBadgeLabel(type))})</span></h2>
+      ${attendanceTableHTML(rosterIds, subsForType)}
+      <div class="sub-status" style="margin-top:14px;margin-bottom:0;">
         오늘(${fmtDateOnly(new Date())}) 제출 현황: <span class="count">${rosterIds.filter(id => submittedIds.has(id)).length} / ${rosterIds.length}명</span> 제출함
         ${missingNames.length ? `<div class="missing">미제출: ${missingNames.map(esc).join(", ")}</div>` : ""}
       </div>
