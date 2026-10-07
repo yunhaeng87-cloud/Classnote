@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0A9480">
+<meta name="theme-color" content="#FAF7EA">
 <!--
   ===== 설정 방법 =====
   1) https://console.firebase.google.com 에서 새 프로젝트를 만드세요 (무료 Spark 요금제로 충분해요).
@@ -79,48 +79,21 @@
 
 <style>
 :root{
-  --paper:#FFFBEF;
-  --paper-2:#E8F8F3;
-  --ink:#24323A;
-  --ink-soft:#5F6F78;
-  --pine:#0A9480;
-  --pine-deep:#066B5C;
-  --marigold:#FFC93C;
-  --coral:#FF6B6B;
-  --line:#CFEBE3;
+  color-scheme:light;
+  --paper:#FAF7EA;
+  --paper-2:#F1EAFC;
+  --ink:#2B2550;
+  --ink-soft:#6D6990;
+  --pine:#7656C0;
+  --pine-deep:#4B2F8F;
+  --marigold:#FFE08A;
+  --coral:#FF8A80;
+  --line:#DCCFF2;
   --card:#FFFFFF;
-  --radius:20px;
-  --shadow:0 2px 0 rgba(10,148,128,.10), 0 8px 24px rgba(10,148,128,.12);
+  --radius:24px;
+  --shadow:0 6px 18px rgba(118,86,192,.10);
   --font-display:"Jua","Pretendard","Noto Sans KR",sans-serif;
   --font-body:"Pretendard","Inter",-apple-system,"Noto Sans KR",sans-serif;
-}
-:root:not([data-theme="light"]) {
-  @media (prefers-color-scheme: dark){
-    --paper:#141D1F;
-    --paper-2:#1B2A2C;
-    --ink:#EAF4F1;
-    --ink-soft:#A7BDB8;
-    --pine:#2FC4AB;
-    --pine-deep:#7FE0CD;
-    --marigold:#FFD35C;
-    --coral:#FF8585;
-    --line:#2C4448;
-    --card:#1A2628;
-    --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
-  }
-}
-:root[data-theme="dark"]{
-  --paper:#141D1F;
-  --paper-2:#1B2A2C;
-  --ink:#EAF4F1;
-  --ink-soft:#A7BDB8;
-  --pine:#2FC4AB;
-  --pine-deep:#7FE0CD;
-  --marigold:#FFD35C;
-  --coral:#FF8585;
-  --line:#2C4448;
-  --card:#1A2628;
-  --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
@@ -268,7 +241,7 @@ input,textarea,select{font-family:inherit;font-size:14px;}
 .divider-or::before,.divider-or::after{content:"";flex:1;height:1px;background:var(--line);}
 .transcript-box{background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:13px;color:var(--ink-soft);margin-top:10px;white-space:pre-wrap;}
 .pron-word{display:inline-block;padding:4px 11px;border-radius:8px;margin:3px 5px 3px 0;font-size:16px;font-weight:700;}
-.pron-word.ok{background:rgba(10,148,128,.15);color:var(--pine);}
+.pron-word.ok{background:rgba(118,86,192,.14);color:var(--pine);}
 .pron-word.issue{background:rgba(217,88,63,.13);color:var(--coral);}
 .pron-note{font-size:12.5px;color:var(--ink-soft);margin:0 0 12px 2px;}
 .target-box{background:var(--paper-2);border-radius:10px;padding:14px 16px;border-left:3px solid var(--marigold);font-size:16px;font-weight:600;line-height:1.6;white-space:pre-wrap;}
@@ -344,41 +317,46 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
   .brand-text span{display:none;}
 }
 
-/* ===== 상큼 테마: 둥글고 밝은 느낌 ===== */
+/* ===== 상큼 파스텔 테마 (라이트 고정) ===== */
 body{
-  background:
-    radial-gradient(circle at 8% -4%, rgba(255,201,60,.28) 0, transparent 38%),
-    radial-gradient(circle at 100% 6%, rgba(10,148,128,.16) 0, transparent 34%),
-    var(--paper);
-  background-attachment:fixed;
+  background-color:var(--paper);
+  background-image:radial-gradient(rgba(118,86,192,.13) 1.2px, transparent 1.3px);
+  background-size:22px 22px;
 }
-.topbar{background:rgba(255,251,239,.88);backdrop-filter:blur(8px);border-bottom:2px dashed var(--line);}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .topbar{background:rgba(20,29,31,.88);}}
-:root[data-theme="dark"] .topbar{background:rgba(20,29,31,.88);}
-.brand-mark{border-radius:14px;background:linear-gradient(135deg,#12C2A5,#0A9480);box-shadow:0 3px 0 rgba(6,107,92,.25);}
-h1,h2,h3{font-weight:400;letter-spacing:0;}
-.card{border:2px solid var(--line);}
-.card h2{font-size:18px;}
-.tab-btn{border:2px solid var(--line);padding:9px 16px;font-family:var(--font-display);font-weight:400;font-size:14.5px;}
-.tab-btn:hover{border-color:var(--pine);color:var(--pine);}
-.tab-btn.active{background:var(--pine);border-color:var(--pine);color:#fff;box-shadow:0 3px 0 var(--pine-deep);transform:translateY(-1px);}
-.btn{border-radius:99px;padding:11px 22px;color:#fff;font-weight:700;box-shadow:0 3px 0 var(--pine-deep);transition:transform .1s,box-shadow .1s,opacity .15s;}
-.btn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--pine-deep);}
-.btn.secondary{color:var(--ink);box-shadow:none;border:2px solid var(--line);}
-.btn.danger{box-shadow:none;border:2px solid var(--coral);}
-.btn.ghost{box-shadow:none;color:var(--pine);}
+.topbar{background:rgba(250,247,234,.94);backdrop-filter:blur(8px);border-bottom:2px solid var(--line);}
+.brand-mark{border-radius:16px;background:#EADFFB;border:2px solid #CDBBEA;color:var(--pine-deep);}
+.brand-text h1{color:var(--ink);}
+h1,h2,h3{font-weight:400;letter-spacing:0;color:var(--ink);}
+.card{border:2px solid var(--line);background:#fff;}
+.card h2{font-size:19px;}
+.tabs{padding:4px 4px 6px;}
+.tab-btn{font-family:var(--font-display);font-weight:400;font-size:14.5px;padding:10px 18px;border:2px solid transparent;color:var(--ink);border-radius:18px;transition:transform .12s,box-shadow .12s;}
+.tab-btn:nth-child(6n+1){background:#FFE0D2;border-color:#FFC9B2;}
+.tab-btn:nth-child(6n+2){background:#CFF3E2;border-color:#A9E3C9;}
+.tab-btn:nth-child(6n+3){background:#FFF0B3;border-color:#FFE27F;}
+.tab-btn:nth-child(6n+4){background:#E6DAFB;border-color:#CDBBEA;}
+.tab-btn:nth-child(6n+5){background:#D5E8FF;border-color:#B2D3FA;}
+.tab-btn:nth-child(6n+6){background:#FFD9E6;border-color:#FFBBD2;}
+.tab-btn.active{color:var(--pine-deep);border-color:var(--pine);box-shadow:0 0 0 3px rgba(118,86,192,.22);}
+.btn{border-radius:18px;padding:11px 22px;background:#E6DAFB;color:var(--pine-deep);border:2px solid #CDBBEA;font-weight:700;box-shadow:none;transition:transform .12s,background .12s;}
+.btn:hover{opacity:1;background:#DCCBF8;transform:translateY(-1px);}
+.btn:active{transform:translateY(1px);}
+.btn.secondary{background:#fff;color:var(--ink);border:2px solid var(--line);}
+.btn.danger{background:#FFF0EE;color:#D2453C;border:2px solid #FFB9B2;}
+.btn.ghost{background:transparent;border:none;color:var(--pine);}
 .btn.small{padding:7px 14px;}
-.field input[type=text],.field input[type=password],.field input[type=time],.field textarea,.field select{border:2px solid var(--line);border-radius:14px;background:var(--card);}
-.role-pill{color:#fff;}
-.role-pill.student{color:#5A4300;}
-.type-badge{color:#fff;}
-.type-badge.voca{color:#5A4300;}
-.notice-banner{background:#FFF4CC;border:2px solid var(--marigold);border-left-width:6px;border-radius:16px;}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .notice-banner{background:#3A3416;}}
-:root[data-theme="dark"] .notice-banner{background:#3A3416;}
-.class-item{border:2px solid var(--line);border-radius:16px;}
-.chip{background:var(--paper-2);color:var(--pine-deep);font-weight:600;}
-::selection{background:var(--marigold);color:#5A4300;}
+.field input[type=text],.field input[type=password],.field input[type=time],.field textarea,.field select{border:2px solid var(--line);border-radius:16px;background:#fff;}
+.field input:focus,.field textarea:focus,.field select:focus{outline:3px solid rgba(118,86,192,.25);border-color:var(--pine);}
+.role-pill{background:#E6DAFB;color:var(--pine-deep);border:1.5px solid #CDBBEA;}
+.role-pill.student{background:#FFF0B3;color:#7A5A00;border-color:#FFE27F;}
+.type-badge{background:#E6DAFB;color:var(--pine-deep);}
+.type-badge.voca{background:#FFF0B3;color:#7A5A00;}
+.notice-banner{background:#FFF6CF;border:2px solid #FFE27F;border-radius:20px;}
+.class-item{border:2px solid var(--line);border-radius:20px;background:#FCFAFF;}
+.chip{background:#EFE7FB;color:var(--pine-deep);font-weight:600;}
+.attend-table td.yes{color:#1E9E6A;}
+.toast{background:#5B3FA8;}
+::selection{background:#FFE08A;color:#4B2F8F;}
 </style>
 </head>
 <body>
@@ -423,7 +401,7 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 // 새 항목은 배열 맨 앞에 추가하세요 (날짜, 내용).
 const CHANGELOG = [
   { date: "2026-10-07", items: [
-    "디자인을 밝고 상큼하게 변경 (민트·노랑·코랄 색감, 둥근 버튼과 카드, 동글동글한 제목 글꼴)",
+    "디자인을 밝은 파스텔 톤으로 변경 (크림 배경에 연보라 포인트, 알록달록한 탭, 둥근 버튼과 카드, 동글동글한 제목 글꼴). 어두운 모드는 사용하지 않고 항상 밝게 표시",
     "제출 현황 표에서 토·일요일 칸을 빼고 평일만 표시 (주말에 낸 제출물은 직전 금요일 칸에 포함)",
     "Sentence를 제출하지 않으면 Shadowing을 할 수 없도록 수정 (녹음·확인·제출 모두 막고 '먼저 Sentence를 제출해주세요' 안내만 표시)",
   ]},
