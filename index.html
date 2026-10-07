@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>클래스노트 - Homework</title>
@@ -8,7 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#2F5D50">
+<meta name="theme-color" content="#0A9480">
 <!--
   ===== 설정 방법 =====
   1) https://console.firebase.google.com 에서 새 프로젝트를 만드세요 (무료 Spark 요금제로 충분해요).
@@ -76,47 +79,47 @@
 
 <style>
 :root{
-  --paper:#FBF8F1;
-  --paper-2:#F3EEE0;
-  --ink:#22301F;
-  --ink-soft:#5B6155;
-  --pine:#2F5D50;
-  --pine-deep:#1E3F36;
-  --marigold:#E3A23C;
-  --coral:#D9583F;
-  --line:#DED5BE;
+  --paper:#FFFBEF;
+  --paper-2:#E8F8F3;
+  --ink:#24323A;
+  --ink-soft:#5F6F78;
+  --pine:#0A9480;
+  --pine-deep:#066B5C;
+  --marigold:#FFC93C;
+  --coral:#FF6B6B;
+  --line:#CFEBE3;
   --card:#FFFFFF;
-  --radius:14px;
-  --shadow:0 1px 2px rgba(34,48,31,.06), 0 6px 20px rgba(34,48,31,.06);
-  --font-display:"Fraunces",Georgia,"Noto Serif KR",serif;
+  --radius:20px;
+  --shadow:0 2px 0 rgba(10,148,128,.10), 0 8px 24px rgba(10,148,128,.12);
+  --font-display:"Jua","Pretendard","Noto Sans KR",sans-serif;
   --font-body:"Pretendard","Inter",-apple-system,"Noto Sans KR",sans-serif;
 }
 :root:not([data-theme="light"]) {
   @media (prefers-color-scheme: dark){
-    --paper:#161C15;
-    --paper-2:#1F2620;
-    --ink:#EDEAE0;
-    --ink-soft:#AEB3A6;
-    --pine:#5C9184;
-    --pine-deep:#7BAE9F;
-    --marigold:#E9B25C;
-    --coral:#E27860;
-    --line:#33392E;
-    --card:#1E251C;
+    --paper:#141D1F;
+    --paper-2:#1B2A2C;
+    --ink:#EAF4F1;
+    --ink-soft:#A7BDB8;
+    --pine:#2FC4AB;
+    --pine-deep:#7FE0CD;
+    --marigold:#FFD35C;
+    --coral:#FF8585;
+    --line:#2C4448;
+    --card:#1A2628;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
   }
 }
 :root[data-theme="dark"]{
-  --paper:#161C15;
-  --paper-2:#1F2620;
-  --ink:#EDEAE0;
-  --ink-soft:#AEB3A6;
-  --pine:#5C9184;
-  --pine-deep:#7BAE9F;
-  --marigold:#E9B25C;
-  --coral:#E27860;
-  --line:#33392E;
-  --card:#1E251C;
+  --paper:#141D1F;
+  --paper-2:#1B2A2C;
+  --ink:#EAF4F1;
+  --ink-soft:#A7BDB8;
+  --pine:#2FC4AB;
+  --pine-deep:#7FE0CD;
+  --marigold:#FFD35C;
+  --coral:#FF8585;
+  --line:#2C4448;
+  --card:#1A2628;
   --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box;}
@@ -265,7 +268,7 @@ input,textarea,select{font-family:inherit;font-size:14px;}
 .divider-or::before,.divider-or::after{content:"";flex:1;height:1px;background:var(--line);}
 .transcript-box{background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:13px;color:var(--ink-soft);margin-top:10px;white-space:pre-wrap;}
 .pron-word{display:inline-block;padding:4px 11px;border-radius:8px;margin:3px 5px 3px 0;font-size:16px;font-weight:700;}
-.pron-word.ok{background:rgba(47,93,80,.13);color:var(--pine);}
+.pron-word.ok{background:rgba(10,148,128,.15);color:var(--pine);}
 .pron-word.issue{background:rgba(217,88,63,.13);color:var(--coral);}
 .pron-note{font-size:12.5px;color:var(--ink-soft);margin:0 0 12px 2px;}
 .target-box{background:var(--paper-2);border-radius:10px;padding:14px 16px;border-left:3px solid var(--marigold);font-size:16px;font-weight:600;line-height:1.6;white-space:pre-wrap;}
@@ -340,6 +343,42 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
   .app-shell{padding:0 12px 56px;}
   .brand-text span{display:none;}
 }
+
+/* ===== 상큼 테마: 둥글고 밝은 느낌 ===== */
+body{
+  background:
+    radial-gradient(circle at 8% -4%, rgba(255,201,60,.28) 0, transparent 38%),
+    radial-gradient(circle at 100% 6%, rgba(10,148,128,.16) 0, transparent 34%),
+    var(--paper);
+  background-attachment:fixed;
+}
+.topbar{background:rgba(255,251,239,.88);backdrop-filter:blur(8px);border-bottom:2px dashed var(--line);}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .topbar{background:rgba(20,29,31,.88);}}
+:root[data-theme="dark"] .topbar{background:rgba(20,29,31,.88);}
+.brand-mark{border-radius:14px;background:linear-gradient(135deg,#12C2A5,#0A9480);box-shadow:0 3px 0 rgba(6,107,92,.25);}
+h1,h2,h3{font-weight:400;letter-spacing:0;}
+.card{border:2px solid var(--line);}
+.card h2{font-size:18px;}
+.tab-btn{border:2px solid var(--line);padding:9px 16px;font-family:var(--font-display);font-weight:400;font-size:14.5px;}
+.tab-btn:hover{border-color:var(--pine);color:var(--pine);}
+.tab-btn.active{background:var(--pine);border-color:var(--pine);color:#fff;box-shadow:0 3px 0 var(--pine-deep);transform:translateY(-1px);}
+.btn{border-radius:99px;padding:11px 22px;color:#fff;font-weight:700;box-shadow:0 3px 0 var(--pine-deep);transition:transform .1s,box-shadow .1s,opacity .15s;}
+.btn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--pine-deep);}
+.btn.secondary{color:var(--ink);box-shadow:none;border:2px solid var(--line);}
+.btn.danger{box-shadow:none;border:2px solid var(--coral);}
+.btn.ghost{box-shadow:none;color:var(--pine);}
+.btn.small{padding:7px 14px;}
+.field input[type=text],.field input[type=password],.field input[type=time],.field textarea,.field select{border:2px solid var(--line);border-radius:14px;background:var(--card);}
+.role-pill{color:#fff;}
+.role-pill.student{color:#5A4300;}
+.type-badge{color:#fff;}
+.type-badge.voca{color:#5A4300;}
+.notice-banner{background:#FFF4CC;border:2px solid var(--marigold);border-left-width:6px;border-radius:16px;}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .notice-banner{background:#3A3416;}}
+:root[data-theme="dark"] .notice-banner{background:#3A3416;}
+.class-item{border:2px solid var(--line);border-radius:16px;}
+.chip{background:var(--paper-2);color:var(--pine-deep);font-weight:600;}
+::selection{background:var(--marigold);color:#5A4300;}
 </style>
 </head>
 <body>
@@ -383,6 +422,11 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 // 로그인 화면 아래 "개발자 노트"에 보여줄 최근 업데이트 내역입니다.
 // 새 항목은 배열 맨 앞에 추가하세요 (날짜, 내용).
 const CHANGELOG = [
+  { date: "2026-10-07", items: [
+    "디자인을 밝고 상큼하게 변경 (민트·노랑·코랄 색감, 둥근 버튼과 카드, 동글동글한 제목 글꼴)",
+    "제출 현황 표에서 토·일요일 칸을 빼고 평일만 표시 (주말에 낸 제출물은 직전 금요일 칸에 포함)",
+    "Sentence를 제출하지 않으면 Shadowing을 할 수 없도록 수정 (녹음·확인·제출 모두 막고 '먼저 Sentence를 제출해주세요' 안내만 표시)",
+  ]},
   { date: "2026-10-02", items: [
     "제출 기준을 '다음 수업까지'에서 '매일(오늘 기준)'로 변경 — 제출 현황, 최근 5회 표, 탭 ✓ 표시, 내 제출물 모두 적용",
     "학생 화면에 본인의 최근 5일 제출 현황을 추가 (다른 학생의 제출 여부는 보이지 않음)",
@@ -741,9 +785,11 @@ function getRecentDays(count){
   const days = [];
   const base = new Date();
   base.setHours(0,0,0,0);
-  for(let i = 0; i < count; i++){
+  // Weekends (Sat/Sun) are skipped, so `count` weekdays are returned.
+  for(let i = 0; days.length < count && i < 60; i++){
     const d = new Date(base);
     d.setDate(base.getDate() - i);
+    if(d.getDay() === 0 || d.getDay() === 6) continue;
     days.push(d);
   }
   return days;
@@ -755,7 +801,13 @@ function attendanceTableHTML(rosterIds, subsForType){
   // windowEnd[i]: start of the day right after recentDays[i] (older index =
   // later date, since the array is newest-first); for today (i=0) the
   // cutoff is "now" since today isn't over yet.
-  const windowEnds = recentDays.map((d, i) => i === 0 ? new Date() : recentDays[i-1]);
+  // Weekend submissions aren't shown as their own columns; they count toward
+  // the preceding Friday (its window runs until Monday 00:00, capped at now).
+  const nowMs = Date.now();
+  const windowEnds = recentDays.map(d => {
+    const e = new Date(d); e.setDate(d.getDate() + (d.getDay() === 5 ? 3 : 1));
+    return new Date(Math.min(e.getTime(), nowMs));
+  });
   return `
     <div style="overflow-x:auto;">
     <table class="attend-table">
@@ -768,7 +820,7 @@ function attendanceTableHTML(rosterIds, subsForType){
           <tr>
             <td class="name">${esc(nameOf(id))}</td>
             ${recentDays.map((d, i) => {
-              const got = subsForType.some(sub => sub.studentId === id && sub.createdAt >= d.getTime() && sub.createdAt < windowEnds[i].getTime());
+              const got = subsForType.some(sub => sub.studentId === id && sub.createdAt >= d.getTime() && sub.createdAt <= windowEnds[i].getTime());
               return `<td class="${got?"yes":"no"}">${got?"✓":"✗"}</td>`;
             }).join("")}
           </tr>
@@ -2140,12 +2192,11 @@ function renderStudentSpeaking(content){
     <div class="card">
       <h2>Shadowing 제출<span class="sub">문장을 듣고 최대한 똑같이 따라 말해보세요</span></h2>
       ${!supported ? `<div class="empty"><span class="big">🎤</span>이 브라우저는 음성 녹음을 지원하지 않아요.<br>Chrome 브라우저를 이용해 주세요.</div>` : `
-        ${target ? `
+        ${!target ? `<div class="empty" style="padding:16px;"><span class="big">📭</span>먼저 Sentence를 제출해주세요.<br>제출한 문장을 교정해서 여기서 따라 말하게 돼요.</div>` : `
           <div class="field">
             <label>따라 말할 문장<span class="sub" style="display:inline;margin-left:6px;">내가 제출한 Sentence를 교정한 문장이에요</span></label>
             <div class="target-box">🗣️ 다음 문장을 녹음해서 제출하세요.\n${esc(target)}</div>
           </div>
-        ` : `<div class="empty" style="padding:16px;"><span class="big">📭</span>먼저 Sentence를 제출해주세요.<br>제출한 문장을 교정해서 여기서 따라 말하게 돼요.</div>`}
         <div class="record-box">
           <span class="rec-dot ${state.speakingRecording?"live":""}"></span>
           <span class="live-transcript" id="live-transcript">${state.speakingRecording ? "녹음 중이에요... 다 말했으면 눌러서 멈추세요" : (state.speakingAudioBase64 ? "녹음 완료! 아래에서 확인받아 보세요" : "녹음 버튼을 눌러 시작하세요")}</span>
@@ -2159,10 +2210,11 @@ function renderStudentSpeaking(content){
           </div>
         ` : ""}
         <div id="speaking-feedback-wrap"></div>
-      `}
+      `}`}
     </div>
   `;
   if(!supported) return;
+  if(!target) return;
   document.getElementById("rec-btn").onclick = state.speakingRecording ? stopRecording : startRecording;
   document.getElementById("speaking-check") && (document.getElementById("speaking-check").onclick = runSpeakingCheck);
   const clearBtn = document.getElementById("speaking-clear");
@@ -2189,6 +2241,7 @@ function renderStudentSpeaking(content){
 }
 
 function startRecording(){
+  if(!myLatestStorySubmission()){ notify("먼저 Sentence를 제출해주세요."); return; }
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     state.mediaStream = stream;
     state.audioChunks = [];
@@ -2258,6 +2311,7 @@ async function runSpeakingCheck(){
   if(!state.sample){ notify("이 화면에서는 AI 첨삭을 사용할 수 없어요."); return; }
   if(!state.speakingAudioBase64){ notify("녹음된 음성을 찾을 수 없어요. 다시 녹음해 주세요."); return; }
   const storySub = myLatestStorySubmission();
+  if(!storySub || !storySub.shadowingText){ notify("먼저 Sentence를 제출해주세요."); return; }
   const target = (storySub && storySub.shadowingText) || "";
   state.speakingBusy = true;
   state.speakingError = null;
@@ -2314,8 +2368,9 @@ async function submitSpeaking(){
   const hw = myLatestHomework();
   const cls = myClass();
   const btn = document.getElementById("speaking-submit");
-  btn.disabled = true; btn.textContent = "제출 중...";
   const storySub = myLatestStorySubmission();
+  if(!storySub || !storySub.shadowingText){ notify("먼저 Sentence를 제출해주세요."); return; }
+  btn.disabled = true; btn.textContent = "제출 중...";
   let audioOk = false;
   try{
     const saved = await saveSubmissionWithMedia({
