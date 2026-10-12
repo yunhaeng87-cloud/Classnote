@@ -7,7 +7,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>클래스노트 - Homework</title>
-<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png?v=20261007">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -77,6 +77,16 @@
   }
 -->
 
+<script>
+// 할로윈 테마: 매년 10월(1~31일)에 자동 적용. 주소 뒤에 ?halloween=1 을 붙이면 미리보기, ?halloween=0 이면 끄기.
+(function(){
+  try{
+    var q = new URLSearchParams(location.search).get("halloween");
+    var on = q === "1" ? true : q === "0" ? false : (new Date().getMonth() === 9);
+    if(on) document.documentElement.classList.add("halloween");
+  }catch(e){}
+})();
+</script>
 <style>
 :root{
   color-scheme:light;
@@ -357,6 +367,54 @@ h1,h2,h3{font-weight:400;letter-spacing:0;color:var(--ink);}
 .attend-table td.yes{color:#1E9E6A;}
 .toast{background:#5B3FA8;}
 ::selection{background:#FFE08A;color:#4B2F8F;}
+
+/* ===== 할로윈 테마 (10월 자동) — 밝은 오렌지·보라 파스텔 ===== */
+html.halloween{
+  --paper:#FFF3E2;
+  --paper-2:#FFE9CF;
+  --ink:#3A2552;
+  --ink-soft:#7A5F8C;
+  --pine:#E8731A;
+  --pine-deep:#8A3F00;
+  --marigold:#FFD36B;
+  --line:#FFD2A3;
+}
+html.halloween body{
+  background-color:var(--paper);
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(255,150,40,.22) 0, transparent 34%),
+    radial-gradient(circle at 92% 4%, rgba(150,90,220,.18) 0, transparent 32%),
+    radial-gradient(rgba(232,115,26,.16) 1.4px, transparent 1.5px);
+  background-size:auto,auto,22px 22px;
+}
+html.halloween .topbar{background:rgba(255,243,226,.94);border-bottom:2px solid #FFC58A;}
+html.halloween .topbar::after{content:"🎃 👻 🦇";position:absolute;right:50%;transform:translateX(50%);top:2px;font-size:13px;letter-spacing:4px;opacity:.9;pointer-events:none;}
+html.halloween .brand-mark{background:#FFE1BF;border-color:#FFB878;}
+html.halloween .card{border-color:#FFD2A3;box-shadow:0 6px 18px rgba(232,115,26,.12);}
+html.halloween .tab-btn:nth-child(6n+1){background:#FFD9B0;border-color:#FFBA78;}
+html.halloween .tab-btn:nth-child(6n+2){background:#E6D6FA;border-color:#C9AEF0;}
+html.halloween .tab-btn:nth-child(6n+3){background:#FFF0B0;border-color:#FFD95E;}
+html.halloween .tab-btn:nth-child(6n+4){background:#D9F2C8;border-color:#B5E39A;}
+html.halloween .tab-btn:nth-child(6n+5){background:#FFD0E0;border-color:#FFA9C6;}
+html.halloween .tab-btn:nth-child(6n+6){background:#E6D6FA;border-color:#C9AEF0;}
+html.halloween .tab-btn.active{border-color:#E8731A;box-shadow:0 0 0 3px rgba(232,115,26,.25);color:#8A3F00;}
+html.halloween .btn{background:#FFD9B0;color:#8A3F00;border-color:#FFB878;}
+html.halloween .btn:hover{background:#FFCB94;}
+html.halloween .btn.secondary{background:#fff;color:var(--ink);border-color:var(--line);}
+html.halloween .btn.danger{background:#FFF0EE;color:#D2453C;border-color:#FFB9B2;}
+html.halloween .role-pill{background:#FFD9B0;color:#8A3F00;border-color:#FFB878;}
+html.halloween .type-badge{background:#FFD9B0;color:#8A3F00;}
+html.halloween .chip{background:#FFE9CF;color:#8A3F00;}
+html.halloween .class-item{background:#FFFAF3;border-color:#FFD2A3;}
+html.halloween .field input[type=text],html.halloween .field input[type=password],html.halloween .field input[type=time],html.halloween .field textarea,html.halloween .field select{border-color:#FFD2A3;}
+html.halloween .field input:focus,html.halloween .field textarea:focus,html.halloween .field select:focus{outline-color:rgba(232,115,26,.28);border-color:#E8731A;}
+html.halloween .toast{background:#6B3FA0;}
+html.halloween ::selection{background:#FFD36B;color:#8A3F00;}
+/* 화면 구석 장식 (클릭 방해 없음) */
+html.halloween body::before{content:"🕸️";position:fixed;top:48px;left:0;font-size:46px;line-height:1;opacity:.55;pointer-events:none;z-index:1;}
+html.halloween body::after{content:"🎃";position:fixed;bottom:8px;right:10px;font-size:42px;line-height:1;opacity:.85;pointer-events:none;z-index:30;animation:hwfloat 3s ease-in-out infinite;}
+@keyframes hwfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@media (prefers-reduced-motion: reduce){html.halloween body::after{animation:none;}}
 </style>
 </head>
 <body>
@@ -400,6 +458,9 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 // 로그인 화면 아래 "개발자 노트"에 보여줄 최근 업데이트 내역입니다.
 // 새 항목은 배열 맨 앞에 추가하세요 (날짜, 내용).
 const CHANGELOG = [
+  { date: "2026-10-12", items: [
+    "매년 10월에 자동으로 바뀌는 할로윈 테마 추가 (오렌지·보라 파스텔, 호박·유령·박쥐 장식). 11월 1일이 되면 자동으로 원래 디자인으로 돌아옴",
+  ]},
   { date: "2026-10-07", items: [
     "앱 아이콘을 귀여운 웃는 노트 그림으로 변경",
     "디자인을 밝은 파스텔 톤으로 변경 (크림 배경에 연보라 포인트, 알록달록한 탭, 둥근 버튼과 카드, 동글동글한 제목 글꼴). 어두운 모드는 사용하지 않고 항상 밝게 표시",
@@ -1226,7 +1287,7 @@ function renderShell(){
     <div class="app-shell">
       <div class="topbar">
         <div class="brand">
-          <div class="brand-mark"><img src="icon-192.png" alt="" onerror="this.replaceWith('C')"></div>
+          <div class="brand-mark"><img src="icon-192.png?v=20261007" alt="" onerror="this.replaceWith('C')"></div>
           <div class="brand-text">
             <h1>클래스노트</h1>
             <span>Homework</span>
@@ -3203,7 +3264,7 @@ async function init(){
 try{
   const appleIcon = document.createElement("link");
   appleIcon.rel = "apple-touch-icon";
-  appleIcon.href = "icon-512.png";
+  appleIcon.href = "icon-512.png?v=20261007";
   document.head.appendChild(appleIcon);
 }catch(e){}
 
