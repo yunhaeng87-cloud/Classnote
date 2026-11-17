@@ -100,6 +100,30 @@
   }catch(e){}
 })();
 </script>
+<script>
+// 크리스마스 테마: 매년 12월(1~31일)에 자동 적용. 주소 뒤에 ?christmas=1 을 붙이면 미리보기, ?christmas=0 이면 끄기.
+(function(){
+  try{
+    var q = new URLSearchParams(location.search).get("christmas");
+    var on = q === "1" ? true : q === "0" ? false : (new Date().getMonth() === 11);
+    if(on){
+      document.documentElement.classList.remove("halloween");
+      document.documentElement.classList.add("christmas");
+      document.addEventListener("DOMContentLoaded", function(){
+        var d = document.createElement("div");
+        d.className = "xm-deco"; d.setAttribute("aria-hidden","true");
+        var h = '<div class="xm-lights"></div>';
+        var marks = ["❄","❅","❆","•","•"];
+        for(var i = 0; i < 28; i++){
+          var size = 8 + Math.floor(Math.random()*14);
+          h += '<span class="xm-snow" style="left:'+(Math.random()*100).toFixed(1)+'%;font-size:'+size+'px;animation-duration:'+(7+Math.random()*9).toFixed(1)+'s,'+(2+Math.random()*3).toFixed(1)+'s;animation-delay:-'+(Math.random()*14).toFixed(1)+'s,-'+(Math.random()*4).toFixed(1)+'s;opacity:'+(0.45+Math.random()*0.5).toFixed(2)+'">'+marks[i%marks.length]+'</span>';
+        }
+        d.innerHTML = h; document.body.appendChild(d);
+      });
+    }
+  }catch(e){}
+})();
+</script>
 <style>
 :root{
   color-scheme:light;
@@ -448,6 +472,77 @@ html.halloween a{color:#FFB45C;}
 .hw-ghost{position:absolute;font-size:34px;filter:drop-shadow(0 0 10px rgba(255,255,255,.8));opacity:.9;animation:hwghost 6s ease-in-out infinite;}
 @keyframes hwghost{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-16px) rotate(6deg)}}
 @media (prefers-reduced-motion: reduce){.hw-bat,.hw-bat svg,.hw-ghost{animation:none;}}
+/* ===== 크리스마스 테마 (12월 자동) — 눈 내리는 겨울밤 + 트리 ===== */
+html.christmas{
+  color-scheme:dark;
+  --paper:#0A1A33;
+  --paper-2:#142B4D;
+  --ink:#F4F9FF;
+  --ink-soft:#AFC6E3;
+  --pine:#FF5A5F;
+  --pine-deep:#FFD166;
+  --marigold:#FFD166;
+  --coral:#FF7A7A;
+  --line:#2F5E8C;
+  --card:#0F2442;
+  --shadow:0 0 26px rgba(255,209,102,.12);
+  background:linear-gradient(180deg,#040C1D 0%,#0A1F3E 45%,#17426B 80%,#2A6190 100%) fixed;
+}
+html.christmas body{background:transparent;}
+html.christmas body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1200 320%22 preserveAspectRatio=%22xMidYMax meet%22%3E%0A%3Cdefs%3E%3CradialGradient id=%22g1%22%3E%3Cstop offset=%220%22 stop-color=%22%23FFD166%22 stop-opacity=%22.45%22/%3E%3Cstop offset=%221%22 stop-color=%22%23FFD166%22 stop-opacity=%220%22/%3E%3C/radialGradient%3E%0A%3ClinearGradient id=%22sn%22 x1=%220%22 y1=%220%22 x2=%220%22 y2=%221%22%3E%3Cstop offset=%220%22 stop-color=%22%23F4FAFF%22/%3E%3Cstop offset=%221%22 stop-color=%22%23C9DFF5%22/%3E%3C/linearGradient%3E%3C/defs%3E%0A%3Cpath d=%22M0 225 Q220 160 460 215 T900 205 T1200 195 V320 H0Z%22 fill=%22%231E4068%22/%3E%0A%3Cg transform=%22translate(170 222) scale(1.0)%22%3E%3Cpolygon points=%220,-70 -26,-30 26,-30%22 fill=%22%230F3B2C%22/%3E%3Cpolygon points=%220,-48 -34,0 34,0%22 fill=%22%23124A37%22/%3E%3Cpolygon points=%220,-70 -10,-56 10,-56%22 fill=%22%23EAF4FF%22/%3E%3Crect x=%22-5%22 y=%220%22 width=%2210%22 height=%2210%22 fill=%22%234A2F18%22/%3E%3C/g%3E%3Cg transform=%22translate(250 230) scale(0.8)%22%3E%3Cpolygon points=%220,-70 -26,-30 26,-30%22 fill=%22%230F3B2C%22/%3E%3Cpolygon points=%220,-48 -34,0 34,0%22 fill=%22%23124A37%22/%3E%3Cpolygon points=%220,-70 -10,-56 10,-56%22 fill=%22%23EAF4FF%22/%3E%3Crect x=%22-5%22 y=%220%22 width=%2210%22 height=%2210%22 fill=%22%234A2F18%22/%3E%3C/g%3E%3Cg transform=%22translate(960 214) scale(1.1)%22%3E%3Cpolygon points=%220,-70 -26,-30 26,-30%22 fill=%22%230F3B2C%22/%3E%3Cpolygon points=%220,-48 -34,0 34,0%22 fill=%22%23124A37%22/%3E%3Cpolygon points=%220,-70 -10,-56 10,-56%22 fill=%22%23EAF4FF%22/%3E%3Crect x=%22-5%22 y=%220%22 width=%2210%22 height=%2210%22 fill=%22%234A2F18%22/%3E%3C/g%3E%3Cg transform=%22translate(1050 222) scale(0.85)%22%3E%3Cpolygon points=%220,-70 -26,-30 26,-30%22 fill=%22%230F3B2C%22/%3E%3Cpolygon points=%220,-48 -34,0 34,0%22 fill=%22%23124A37%22/%3E%3Cpolygon points=%220,-70 -10,-56 10,-56%22 fill=%22%23EAF4FF%22/%3E%3Crect x=%22-5%22 y=%220%22 width=%2210%22 height=%2210%22 fill=%22%234A2F18%22/%3E%3C/g%3E%3Cg transform=%22translate(1130 226) scale(0.7)%22%3E%3Cpolygon points=%220,-70 -26,-30 26,-30%22 fill=%22%230F3B2C%22/%3E%3Cpolygon points=%220,-48 -34,0 34,0%22 fill=%22%23124A37%22/%3E%3Cpolygon points=%220,-70 -10,-56 10,-56%22 fill=%22%23EAF4FF%22/%3E%3Crect x=%22-5%22 y=%220%22 width=%2210%22 height=%2210%22 fill=%22%234A2F18%22/%3E%3C/g%3E%0A%3Cpath d=%22M0 262 Q300 232 600 262 T1200 252 V320 H0Z%22 fill=%22url(%23sn)%22/%3E%0A%3Cellipse cx=%22600%22 cy=%22170%22 rx=%22150%22 ry=%22150%22 fill=%22url(%23g1)%22/%3E%0A%3Crect x=%22588%22 y=%22252%22 width=%2224%22 height=%2226%22 fill=%22%235A3A1E%22/%3E%0A%3Cpolygon points=%22600,66 552,142 648,142%22 fill=%22%23146B3A%22/%3E%3Cpolygon points=%22600,106 536,200 664,200%22 fill=%22%23188046%22/%3E%3Cpolygon points=%22600,156 514,258 686,258%22 fill=%22%231D9453%22/%3E%0A%3Cpolygon points=%22600,66 588,86 612,86%22 fill=%22%23EAF4FF%22/%3E%3Cpath d=%22M536 200 q64 22 128 0 l-14 10 q-50 18 -100 0z%22 fill=%22%23EAF4FF%22 opacity=%22.85%22/%3E%0A%3Ccircle cx=%22600%22 cy=%22100%22 r=%225.5%22 fill=%22%23FF4D4D%22/%3E%3Ccircle cx=%22600%22 cy=%22100%22 r=%2211%22 fill=%22%23FF4D4D%22 opacity=%22.22%22/%3E%3Ccircle cx=%22575%22 cy=%22128%22 r=%225.5%22 fill=%22%23FFD166%22/%3E%3Ccircle cx=%22575%22 cy=%22128%22 r=%2211%22 fill=%22%23FFD166%22 opacity=%22.22%22/%3E%3Ccircle cx=%22626%22 cy=%22134%22 r=%225.5%22 fill=%22%235BC0FF%22/%3E%3Ccircle cx=%22626%22 cy=%22134%22 r=%2211%22 fill=%22%235BC0FF%22 opacity=%22.22%22/%3E%3Ccircle cx=%22560%22 cy=%22170%22 r=%225.5%22 fill=%22%23FF4D4D%22/%3E%3Ccircle cx=%22560%22 cy=%22170%22 r=%2211%22 fill=%22%23FF4D4D%22 opacity=%22.22%22/%3E%3Ccircle cx=%22600%22 cy=%22160%22 r=%225.5%22 fill=%22%23FFD166%22/%3E%3Ccircle cx=%22600%22 cy=%22160%22 r=%2211%22 fill=%22%23FFD166%22 opacity=%22.22%22/%3E%3Ccircle cx=%22642%22 cy=%22172%22 r=%225.5%22 fill=%22%23FF9BD2%22/%3E%3Ccircle cx=%22642%22 cy=%22172%22 r=%2211%22 fill=%22%23FF9BD2%22 opacity=%22.22%22/%3E%3Ccircle cx=%22540%22 cy=%22222%22 r=%225.5%22 fill=%22%235BC0FF%22/%3E%3Ccircle cx=%22540%22 cy=%22222%22 r=%2211%22 fill=%22%235BC0FF%22 opacity=%22.22%22/%3E%3Ccircle cx=%22580%22 cy=%22206%22 r=%225.5%22 fill=%22%23FF4D4D%22/%3E%3Ccircle cx=%22580%22 cy=%22206%22 r=%2211%22 fill=%22%23FF4D4D%22 opacity=%22.22%22/%3E%3Ccircle cx=%22620%22 cy=%22214%22 r=%225.5%22 fill=%22%23FFD166%22/%3E%3Ccircle cx=%22620%22 cy=%22214%22 r=%2211%22 fill=%22%23FFD166%22 opacity=%22.22%22/%3E%3Ccircle cx=%22664%22 cy=%22226%22 r=%225.5%22 fill=%22%23FF4D4D%22/%3E%3Ccircle cx=%22664%22 cy=%22226%22 r=%2211%22 fill=%22%23FF4D4D%22 opacity=%22.22%22/%3E%3Ccircle cx=%22560%22 cy=%22246%22 r=%225.5%22 fill=%22%23FFD166%22/%3E%3Ccircle cx=%22560%22 cy=%22246%22 r=%2211%22 fill=%22%23FFD166%22 opacity=%22.22%22/%3E%3Ccircle cx=%22610%22 cy=%22244%22 r=%225.5%22 fill=%22%235BC0FF%22/%3E%3Ccircle cx=%22610%22 cy=%22244%22 r=%2211%22 fill=%22%235BC0FF%22 opacity=%22.22%22/%3E%3Ccircle cx=%22650%22 cy=%22248%22 r=%225.5%22 fill=%22%23FF9BD2%22/%3E%3Ccircle cx=%22650%22 cy=%22248%22 r=%2211%22 fill=%22%23FF9BD2%22 opacity=%22.22%22/%3E%0A%3Cpolygon points=%22600,40 606,58 626,58 610,69 616,88 600,76 584,88 590,69 574,58 594,58%22 fill=%22%23FFD166%22 stroke=%22%23FFF2B8%22 stroke-width=%222%22/%3E%0A%3Cellipse cx=%22600%22 cy=%2262%22 rx=%2228%22 ry=%2228%22 fill=%22url(%23g1)%22/%3E%0A%3Crect x=%22470%22 y=%22262%22 width=%2244%22 height=%2234%22 rx=%223%22 fill=%22%23E5484D%22/%3E%3Crect x=%22489.0%22 y=%22262%22 width=%226%22 height=%2234%22 fill=%22%23FFD166%22/%3E%3Crect x=%22470%22 y=%22276.0%22 width=%2244%22 height=%226%22 fill=%22%23FFD166%22/%3E%3Cpath d=%22M492.0 262 q-12 -14 -2 -14 q8 2 2 14 q6 -12 14 -10 q6 4 -14 10z%22 fill=%22%23FFD166%22/%3E%3Crect x=%22525%22 y=%22272%22 width=%2232%22 height=%2224%22 rx=%223%22 fill=%22%232E86DE%22/%3E%3Crect x=%22538.0%22 y=%22272%22 width=%226%22 height=%2224%22 fill=%22%23FFFFFF%22/%3E%3Crect x=%22525%22 y=%22281.0%22 width=%2232%22 height=%226%22 fill=%22%23FFFFFF%22/%3E%3Cpath d=%22M541.0 272 q-12 -14 -2 -14 q8 2 2 14 q6 -12 14 -10 q6 4 -14 10z%22 fill=%22%23FFFFFF%22/%3E%3Crect x=%22650%22 y=%22270%22 width=%2238%22 height=%2228%22 rx=%223%22 fill=%22%232EAF6B%22/%3E%3Crect x=%22666.0%22 y=%22270%22 width=%226%22 height=%2228%22 fill=%22%23FFE08A%22/%3E%3Crect x=%22650%22 y=%22281.0%22 width=%2238%22 height=%226%22 fill=%22%23FFE08A%22/%3E%3Cpath d=%22M669.0 270 q-12 -14 -2 -14 q8 2 2 14 q6 -12 14 -10 q6 4 -14 10z%22 fill=%22%23FFE08A%22/%3E%3Crect x=%22702%22 y=%22260%22 width=%2246%22 height=%2236%22 rx=%223%22 fill=%22%23B5179E%22/%3E%3Crect x=%22722.0%22 y=%22260%22 width=%226%22 height=%2236%22 fill=%22%23FFD166%22/%3E%3Crect x=%22702%22 y=%22275.0%22 width=%2246%22 height=%226%22 fill=%22%23FFD166%22/%3E%3Cpath d=%22M725.0 260 q-12 -14 -2 -14 q8 2 2 14 q6 -12 14 -10 q6 4 -14 10z%22 fill=%22%23FFD166%22/%3E%0A%3Cpath d=%22M0 292 Q300 272 600 290 T1200 284 V320 H0Z%22 fill=%22%23FFFFFF%22 opacity=%22.95%22/%3E%0A%3C/svg%3E") center bottom/max(100%,820px) auto no-repeat,
+    radial-gradient(circle 40px at 82% 13%,#FFF8DC 0 97%,transparent 100%),
+    radial-gradient(circle 160px at 82% 13%,rgba(255,240,180,.35),transparent 100%),
+    radial-gradient(1.2px 1.2px at 8% 14%,#fff,transparent),radial-gradient(1.7px 1.7px at 15% 6%,#fff,transparent),radial-gradient(2.2px 2.2px at 24% 22%,#fff,transparent),radial-gradient(1.2px 1.2px at 33% 9%,#fff,transparent),radial-gradient(1.7px 1.7px at 41% 17%,#fff,transparent),radial-gradient(2.2px 2.2px at 52% 5%,#fff,transparent),radial-gradient(1.2px 1.2px at 60% 19%,#fff,transparent),radial-gradient(1.7px 1.7px at 68% 8%,#fff,transparent),radial-gradient(2.2px 2.2px at 74% 26%,#fff,transparent),radial-gradient(1.2px 1.2px at 88% 7%,#fff,transparent),radial-gradient(1.7px 1.7px at 93% 21%,#fff,transparent),radial-gradient(2.2px 2.2px at 5% 34%,#fff,transparent),radial-gradient(1.2px 1.2px at 46% 31%,#fff,transparent),radial-gradient(1.7px 1.7px at 97% 40%,#fff,transparent),radial-gradient(2.2px 2.2px at 20% 44%,#fff,transparent),radial-gradient(1.2px 1.2px at 63% 38%,#fff,transparent),radial-gradient(1.7px 1.7px at 81% 36%,#fff,transparent);
+}
+html.christmas body::after{content:none;}
+html.christmas .topbar{background:rgba(7,18,40,.55);backdrop-filter:blur(4px);border-bottom:2px solid #2F5E8C;box-shadow:0 4px 22px rgba(255,209,102,.16);}
+html.christmas .brand-mark{background:#142B4D;border-color:#FF5A5F;box-shadow:0 0 14px rgba(255,90,95,.5);}
+html.christmas .brand-text h1{color:#FFD166;text-shadow:0 0 12px rgba(255,209,102,.5);}
+html.christmas h1,html.christmas h2,html.christmas h3{color:var(--ink);}
+html.christmas .card h2{color:#FFD166;text-shadow:0 0 10px rgba(255,209,102,.35);}
+html.christmas .card{background:rgba(15,36,66,.86);backdrop-filter:blur(6px);border:2px solid #2F5E8C;box-shadow:0 0 0 1px rgba(255,209,102,.10),0 10px 30px rgba(0,0,0,.4),0 0 24px rgba(91,192,255,.10);}
+html.christmas .tab-btn,html.christmas .tab-btn:nth-child(n){background:rgba(20,43,77,.92);border:2px solid #2F5E8C;color:#DCEBFF;}
+html.christmas .tab-btn:hover{border-color:#FFD166;color:#FFE9A8;}
+html.christmas .tab-btn.active,html.christmas .tab-btn.active:nth-child(n){background:linear-gradient(135deg,#2EAF6B,#188046);border-color:#8CE0AE;color:#fff;box-shadow:0 0 18px rgba(46,175,107,.6);}
+html.christmas .btn{background:linear-gradient(135deg,#FF5A5F,#D62839);color:#fff;border:2px solid #FFA3A6;box-shadow:0 0 16px rgba(255,90,95,.45);}
+html.christmas .btn:hover{background:linear-gradient(135deg,#FF7A7E,#E23A4A);box-shadow:0 0 22px rgba(255,90,95,.7);}
+html.christmas .btn.secondary{background:rgba(20,43,77,.75);color:var(--ink);border:2px solid #4A86C0;box-shadow:none;}
+html.christmas .btn.danger{background:rgba(255,90,90,.12);color:#FF9A9A;border:2px solid #FF7A7A;box-shadow:none;}
+html.christmas .btn.ghost{background:transparent;color:#FFD166;border:none;box-shadow:none;}
+html.christmas .field label{color:#AFC6E3;}
+html.christmas .field input[type=text],html.christmas .field input[type=password],html.christmas .field input[type=time],html.christmas .field textarea,html.christmas .field select{background:#0B1D38;color:var(--ink);border:2px solid #2F5E8C;}
+html.christmas .field input:focus,html.christmas .field textarea:focus,html.christmas .field select:focus{outline:3px solid rgba(255,209,102,.35);border-color:#FFD166;}
+html.christmas .role-pill{background:#1D3F6B;color:#DCEBFF;border:1.5px solid #4A86C0;}
+html.christmas .role-pill.student{background:#4A1A1E;color:#FFB3B6;border-color:#FF5A5F;}
+html.christmas .type-badge{background:#FF5A5F;color:#fff;}
+html.christmas .type-badge.voca{background:#2EAF6B;color:#fff;}
+html.christmas .notice-banner{background:rgba(70,18,26,.85);border:2px solid #FFD166;border-radius:20px;box-shadow:0 0 18px rgba(255,209,102,.25);}
+html.christmas .notice-banner-badge{color:#FFD166;}
+html.christmas .class-item{background:rgba(11,29,56,.85);border:2px solid #2F5E8C;}
+html.christmas .chip{background:#1D3F6B;color:#DCEBFF;}
+html.christmas .attend-table td.yes{color:#7CF0A8;}
+html.christmas .toast{background:#D62839;color:#fff;}
+html.christmas ::selection{background:#FFD166;color:#2A1A00;}
+html.christmas a{color:#FFD166;}
+/* 눈 내리는 효과와 전구 줄 (JS가 12월에만 추가) */
+.xm-deco{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden;}
+.xm-snow{position:absolute;top:-30px;color:#fff;text-shadow:0 0 6px rgba(200,230,255,.9);animation-name:xmfall,xmsway;animation-timing-function:linear,ease-in-out;animation-iteration-count:infinite,infinite;}
+@keyframes xmfall{to{top:105vh;}}
+@keyframes xmsway{0%,100%{margin-left:-14px}50%{margin-left:14px}}
+.xm-lights{position:absolute;left:0;right:0;top:0;height:26px;
+  background:
+    radial-gradient(circle 6px at 18px 14px,#FF4D4D 0 5px,transparent 6px),
+    radial-gradient(circle 6px at 54px 18px,#FFD166 0 5px,transparent 6px),
+    radial-gradient(circle 6px at 90px 14px,#3DDC84 0 5px,transparent 6px),
+    radial-gradient(circle 6px at 126px 18px,#5BC0FF 0 5px,transparent 6px);
+  background-size:144px 26px;background-repeat:repeat-x;animation:xmtwinkle 1.6s ease-in-out infinite alternate;
+  filter:drop-shadow(0 0 5px rgba(255,255,255,.55));}
+.xm-lights::before{content:"";position:absolute;left:0;right:0;top:4px;height:2px;background:rgba(20,40,30,.9);}
+@keyframes xmtwinkle{from{opacity:.55}to{opacity:1}}
+@media (prefers-reduced-motion: reduce){.xm-snow,.xm-lights{animation:none;}}
 </style>
 </head>
 <body>
@@ -491,6 +586,9 @@ const TERMS_TEXT = `클래스노트 이용약관 (요약)
 // 로그인 화면 아래 "개발자 노트"에 보여줄 최근 업데이트 내역입니다.
 // 새 항목은 배열 맨 앞에 추가하세요 (날짜, 내용).
 const CHANGELOG = [
+  { date: "2026-11-17", items: [
+    "매년 12월에 자동으로 바뀌는 크리스마스 테마 추가 (눈 내리는 겨울밤, 크리스마스 트리와 선물, 반짝이는 전구 줄, 빨강·초록·금색 포인트). 1월 1일이 되면 자동으로 원래 디자인으로 돌아옴",
+  ]},
   { date: "2026-10-20", items: [
     "쉐도잉 결과에 목표 문장과 비교한 '정확도 %'와 '빠뜨린 단어' 표시 추가 (AI 판정 기준은 기존 그대로)",
   ]},
